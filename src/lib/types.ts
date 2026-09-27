@@ -57,6 +57,38 @@ export interface Task {
   updated_at: string;
   /** Verdier for egendefinerte egenskaper: { egenskaps-id: verdi }. */
   custom: Record<string, PropValue>;
+  repeat_freq: RepeatFreq | null;
+  repeat_interval: number;
+  repeat_weekdays: number[];
+  repeat_until: string | null;
+  repeat_anchor: string | null;
+  /** Forrige forekomst i en gjentakende serie. */
+  recurs_from: string | null;
+}
+
+export type RepeatFreq = 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type EventType = 'meeting' | 'event' | 'deadline' | 'work' | 'other';
+
+export interface CalendarEvent {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  location: string;
+  category: string;
+  type: EventType;
+  start_date: string;
+  end_date: string;
+  /** «HH:MM:SS» fra databasen, null for heldags. */
+  start_time: string | null;
+  end_time: string | null;
+  person_id: string | null;
+  repeat_freq: RepeatFreq | null;
+  repeat_interval: number;
+  repeat_weekdays: number[];
+  repeat_until: string | null;
+  created_by: string | null;
+  created_at: string;
 }
 
 export type PropType = 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'person' | 'checkbox' | 'url';

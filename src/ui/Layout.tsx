@@ -1,4 +1,18 @@
-import { CalendarRange, ChevronLeft, FolderKanban, ListTodo, Mail, Moon, Receipt, Settings, Sun, UserRoundCheck, Users, Wallet } from 'lucide-react';
+import {
+  CalendarDays,
+  CalendarRange,
+  ChevronLeft,
+  FolderKanban,
+  ListTodo,
+  Mail,
+  Moon,
+  Receipt,
+  Settings,
+  Sun,
+  UserRoundCheck,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { listProjects, myInvitations } from '../lib/api';
@@ -60,6 +74,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavLink to={`${base}/oppgaver/ansvar`}>
             <UserRoundCheck size={19} aria-hidden="true" /> Ansvar per person
           </NavLink>
+          <NavLink to={`${base}/kalender`}>
+            <CalendarDays size={19} aria-hidden="true" /> Kalender
+          </NavLink>
           <div className="nav-group-label">Økonomi</div>
           <NavLink to={`${base}/okonomi`} end>
             <Receipt size={19} aria-hidden="true" /> Poster
@@ -115,6 +132,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <NavLink to={`${base}/oppgaver`}>
           <ListTodo size={22} aria-hidden="true" />
           <span>Oppgaver</span>
+        </NavLink>
+        <NavLink to={`${base}/kalender`}>
+          <CalendarDays size={22} aria-hidden="true" />
+          <span>Kalender</span>
         </NavLink>
         <NavLink to={`${base}/okonomi`}>
           <Wallet size={22} aria-hidden="true" />

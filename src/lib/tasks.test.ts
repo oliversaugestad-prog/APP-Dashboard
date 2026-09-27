@@ -17,6 +17,12 @@ function task(p: Partial<Task>): Task {
     created_at: '2026-09-01T00:00:00Z',
     updated_at: '',
     custom: {},
+    repeat_freq: null,
+    repeat_interval: 1,
+    repeat_weekdays: [],
+    repeat_until: null,
+    repeat_anchor: null,
+    recurs_from: null,
     ...p,
   };
 }

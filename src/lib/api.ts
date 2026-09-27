@@ -1,5 +1,18 @@
 import { supabase } from './supabase';
-import type { PropValue, TaskProperty, Category, CategoryScope, Invitation, Member, MonthBudget, Profile, Project, Task, Transaction } from './types';
+import type {
+  CalendarEvent,
+  PropValue,
+  TaskProperty,
+  Category,
+  CategoryScope,
+  Invitation,
+  Member,
+  MonthBudget,
+  Profile,
+  Project,
+  Task,
+  Transaction,
+} from './types';
 
 function check<T>(res: { data: T | null; error: unknown }): T {
   if (res.error) throw res.error;
@@ -46,11 +59,12 @@ export interface ProjectData {
   budgets: MonthBudget[];
   categories: Category[];
   properties: TaskProperty[];
+  events: CalendarEvent[];
 }
 
 export async function loadProject(id: string): Promise<ProjectData | null> {
   const db = supabase();
-  const [project, members, invitations, tasks, transactions, budgets, categories, properties] = await Promise.all([
+  const [project, members, invitations, tasks, transactions, budgets, categories, properties, events] = await Promise.all([
     db.from('projects').select('id, name, opening_balance_ore, created_at').eq('id', id).maybeSingle(),
     db.from('project_members').select('*').eq('project_id', id),
     db.from('project_invitations').select('*').eq('project_id', id).order('created_at'),
@@ -59,6 +73,7 @@ export async function loadProject(id: string): Promise<ProjectData | null> {
     db.from('month_budgets').select('project_id, month, budget_ore').eq('project_id', id),
     db.from('categories').select('project_id, scope, name, color').eq('project_id', id).order('name'),
     db.from('task_properties').select('id, project_id, name, type, options, position').eq('project_id', id).order('position').order('created_at'),
+    db.from('calendar_events').select('*').eq('project_id', id).order('start_date'),
   ]);
   const p = check(project);
   if (!p) return null;
@@ -84,6 +99,7 @@ export async function loadProject(id: string): Promise<ProjectData | null> {
     budgets: (check(budgets) as MonthBudget[]).map((b) => ({ ...b, budget_ore: Number(b.budget_ore) })),
     categories: check(categories) as Category[],
     properties: check(properties) as TaskProperty[],
+    events: check(events) as CalendarEvent[],
   };
 }
 
@@ -131,7 +147,8 @@ export async function acceptInvitation(id: string): Promise<string> {
 
 /* ----------------------------- Oppgaver ----------------------------- */
 
-export type TaskInput = Pick<Task, 'title' | 'description' | 'due_date' | 'category' | 'assignee_id' | 'kind' | 'status'>;
+export type TaskInput = Pick<Task, 'title' | 'description' | 'due_date' | 'category' | 'assignee_id' | 'kind' | 'status'> &
+  Partial<Pick<Task, 'repeat_freq' | 'repeat_interval' | 'repeat_weekdays' | 'repeat_until' | 'repeat_anchor'>>;
 
 export async function createTask(projectId: string, input: TaskInput): Promise<void> {
   check(
@@ -208,4 +225,24 @@ export async function deleteProperty(id: string): Promise<void> {
 
 export async function setTaskProperty(taskId: string, propertyId: string, value: PropValue): Promise<void> {
   check(await supabase().rpc('set_task_property', { p_task: taskId, p_property: propertyId, p_value: value }));
+}
+
+/* ----------------------------- Kalender ----------------------------- */
+
+export type EventInput = Omit<CalendarEvent, 'id' | 'project_id' | 'created_by' | 'created_at'>;
+
+export async function createEvent(projectId: string, input: EventInput): Promise<void> {
+  check(
+    await supabase()
+      .from('calendar_events')
+      .insert({ project_id: projectId, ...input }),
+  );
+}
+
+export async function updateEvent(id: string, patch: Partial<EventInput>): Promise<void> {
+  check(await supabase().from('calendar_events').update(patch).eq('id', id));
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  check(await supabase().from('calendar_events').delete().eq('id', id));
 }

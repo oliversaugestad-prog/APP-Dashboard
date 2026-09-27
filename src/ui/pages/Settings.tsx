@@ -18,7 +18,7 @@ export function SettingsPage() {
   const { isOwner } = useProject();
   return (
     <Page title="Prosjekt og medlemmer">
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="layout-grid cols-2" style={{ alignItems: 'start' }}>
         <div className="stack">
           <ProjectSection />
           <MembersSection />

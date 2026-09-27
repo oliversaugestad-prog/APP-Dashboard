@@ -9,7 +9,7 @@ import { AuthProvider } from './state/auth';
 import { ToastProvider } from './state/toast';
 import { App } from './ui/App';
 import { LoginPage } from './ui/pages/Login';
-import './ui/styles.css';
+import './ui/tailwind.css';
 
 type Boot = { kind: 'loading' } | { kind: 'login'; notice?: string | null } | { kind: 'app'; session: Session };
 

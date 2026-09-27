@@ -58,7 +58,7 @@ export function MonthDetailPage() {
         </Link>
       </div>
 
-      <div className="grid cols-2">
+      <div className="layout-grid cols-2">
         <section className="card" aria-labelledby="saldo-h">
           <div className="card-head">
             <h2 id="saldo-h">Saldo</h2>

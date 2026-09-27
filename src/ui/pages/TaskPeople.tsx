@@ -25,7 +25,7 @@ export function TaskPeoplePage() {
           Vis fullførte i listene
         </label>
       </div>
-      <div className="grid cols-3">
+      <div className="layout-grid cols-3">
         {people.map((p) => (
           <PersonTasks
             key={p.user_id}

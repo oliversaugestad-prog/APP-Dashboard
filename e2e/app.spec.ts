@@ -276,6 +276,104 @@ test.describe.serial('Prosjektpanel', () => {
     await page.close();
   });
 
+  test('gjentakende oppgaver og kalender', async ({ browser }) => {
+    const page = await browser.newPage();
+    // Fast «nå» midt i uke 40, så testen ikke avhenger av dagens dato.
+    await page.clock.setFixedTime(new Date('2026-09-30T10:00:00'));
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/oppgaver`);
+
+    // Lag en ukentlig oppgave med frist mandag 5. oktober.
+    await page
+      .getByRole('button', { name: /^Ny( oppgave)?$/ })
+      .first()
+      .click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Tittel').fill('Ukesrapport');
+    await dialog.getByLabel('Forfallsdato').fill('2026-10-05');
+    await dialog.getByLabel('Gjentakelse').selectOption('weekly');
+    await expect(dialog.getByRole('button', { name: 'mandag' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByText('Hver uke (man)')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Lagre' }).click();
+    await expect(dialog).toBeHidden();
+
+    await page.getByRole('button', { name: /^Gjentakende/ }).click();
+    const rows = page.locator('tbody tr:not(.add-row):not(.empty-row)');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Ukesrapport');
+    await expect(rows.first().getByLabel('Gjentakende')).toBeVisible();
+
+    // Fullfør: neste forekomst lages automatisk med frist 12. oktober.
+    await page.getByRole('button', { name: /^Alle/ }).click();
+    await page.getByRole('checkbox', { name: 'Fullfør «Ukesrapport»' }).check();
+    await expect(page.getByText('Fullført. Neste forekomst er lagt til.')).toBeVisible();
+    const series = page.locator('tbody tr', { hasText: 'Ukesrapport' });
+    await expect(series).toHaveCount(2);
+    await expect(page.getByRole('checkbox', { name: 'Fullfør «Ukesrapport»' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Frist for «Ukesrapport»: 2026-10-12/ })).toBeVisible();
+
+    // Kalenderen: ny hendelse via knappen
+    await page.getByRole('link', { name: 'Kalender' }).first().click();
+    await expect(page.getByText('Uke 40')).toBeVisible();
+    await page
+      .getByRole('button', { name: /^Ny( hendelse)?$/ })
+      .first()
+      .click();
+    const ev = page.getByRole('dialog');
+    await ev.getByLabel('Tittel').fill('Styremøte');
+    await ev.getByLabel('Fra dato').fill('2026-10-06');
+    await ev.getByLabel('Fra kl.').fill('10:00');
+    await ev.getByLabel('Til kl.').fill('11:00');
+    await ev.getByRole('button', { name: 'Lagre' }).click();
+    await expect(page.getByText('Hendelsen er lagt i kalenderen.')).toBeVisible();
+
+    // Neste uke: hendelsen og oppgavens frist vises
+    await page.getByRole('button', { name: 'Neste', exact: true }).click();
+    await expect(page.getByText('Uke 41')).toBeVisible();
+    const chip = page.getByRole('button', { name: /^Styremøte/ }).first();
+    await expect(chip).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ukesrapport' }).first()).toBeVisible();
+
+    // Boblen viser detaljene
+    await chip.click();
+    const pop = page.getByRole('dialog', { name: 'Styremøte' });
+    await expect(pop).toContainText('10:00–11:00');
+    await expect(pop).toContainText('Møte');
+    await page.keyboard.press('Escape');
+    await expect(pop).toBeHidden();
+
+    // Dra hendelsen én time ned
+    const box = (await chip.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + 8 + 22, { steps: 4 });
+    await page.mouse.move(box.x + box.width / 2, box.y + 8 + 44, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.getByRole('button', { name: /^Styremøte.*11:00–12:00/ })).toBeVisible();
+
+    // Kommende forekomst av den gjentakende oppgaven i uken etter
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByText('Uke 42')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ukesrapport' }).first()).toBeVisible();
+    await page.keyboard.press('t');
+    await expect(page.getByText('Uke 40')).toBeVisible();
+
+    // Måned, og skjul en kilde i sidepanelet
+    await page.keyboard.press('m');
+    await page.getByRole('button', { name: 'Neste', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Oktober 2026' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Styremøte/ }).first()).toBeVisible();
+    await page.getByRole('button', { name: /^Møte/ }).click();
+    await expect(page.getByRole('button', { name: /Styremøte/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Møte/ }).click();
+    await expect(page.getByRole('button', { name: /Styremøte/ }).first()).toBeVisible();
+    await page.keyboard.press('u');
+    await page.close();
+  });
+
   test('økonomi: poster, budsjett, måneder og datoflytting', async ({ browser }) => {
     const page = await browser.newPage();
     await page.goto('/');

@@ -2,12 +2,14 @@ import { Lightbulb, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { createTask, deleteTask, setTaskProperty, updateTask, type TaskInput } from '../../lib/api';
 import { formatDate } from '../../lib/dates';
+import { NO_REPEAT, ruleFrom, ruleToRow, type RepeatRule } from '../../lib/recurrence';
 import { STATUS_LABEL, type Task, type TaskKind, type TaskStatus } from '../../lib/types';
 import { useProject } from '../../state/project';
 import { useToast } from '../../state/toast';
 import { CategoryPicker } from './CategoryPicker';
 import { Dialog } from './Dialog';
 import { Segmented } from './common';
+import { RepeatEditor } from './RepeatEditor';
 import { PROP_ICON, PropertyCell } from './Properties';
 
 interface Props {
@@ -30,6 +32,7 @@ function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Pa
   // Egendefinerte egenskaper lagres med én gang, så vi viser alltid siste versjon av oppgaven.
   const live = task ? (tasks.find((t) => t.id === task.id) ?? task) : null;
   const toast = useToast();
+  const [rule, setRule] = useState<RepeatRule>(() => (task ? ruleFrom(task) : NO_REPEAT));
   const [form, setForm] = useState<TaskInput>(() => ({
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -50,7 +53,16 @@ function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Pa
     if (!form.title.trim()) return setError('Gi oppgaven en tittel.');
     setBusy(true);
     setError(null);
-    const input = { ...form, title: form.title.trim(), description: form.description.trim(), category: form.category.trim() };
+    const ruleChanged = JSON.stringify(ruleToRow(rule)) !== JSON.stringify(task ? ruleToRow(ruleFrom(task)) : ruleToRow(NO_REPEAT));
+    const input: TaskInput = {
+      ...form,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      category: form.category.trim(),
+      ...ruleToRow(rule),
+      // Serien regnes fra fristen når regelen settes eller endres.
+      repeat_anchor: rule.freq ? (ruleChanged || !task?.repeat_anchor ? form.due_date : task.repeat_anchor) : null,
+    };
     try {
       if (task) await updateTask(task.id, input);
       else await createTask(project.id, input);
@@ -128,6 +140,19 @@ function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Pa
             ))}
           </select>
         </label>
+        {form.kind === 'task' && (
+          <div className="field full">
+            <span>Gjentakelse</span>
+            <RepeatEditor rule={rule} onChange={setRule} startDate={form.due_date} />
+            {rule.freq && (
+              <span className="hint">
+                {form.due_date
+                  ? 'Når oppgaven fullføres, lages neste forekomst automatisk med ny frist.'
+                  : 'Uten frist regnes neste forekomst fra dagen oppgaven fullføres.'}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       {live && properties.length > 0 && (
         <div className="prop-fields" aria-label="Egenskaper">

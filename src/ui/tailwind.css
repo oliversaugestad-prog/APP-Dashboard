@@ -1,0 +1,61 @@
+/*
+ * Tailwind brukes av kalenderen, som er portert fra StudyPath.
+ * Bare tema og hjelpeklasser — ikke Tailwinds nullstilling (preflight), så
+ * resten av appen ser ut som før. Fargenavnene fra StudyPath (card, border,
+ * muted …) peker på appens egne tokens i styles.css, og følger lys/mørk modus.
+ */
+@layer theme, base, app, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+/* Appens eget designsystem ligger i laget «app», under Tailwinds hjelpeklasser. */
+@import './styles.css' layer(app);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme inline {
+  --color-card: var(--card);
+  --color-border: var(--line);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-primary: var(--accent-bg);
+  --color-primary-foreground: #ffffff;
+  --color-destructive: var(--destructive);
+  --color-ring: var(--accent);
+  --color-sidebar: var(--bg-elev);
+  --color-secondary: var(--surface-2);
+  --font-sans: var(--font);
+}
+
+/*
+ * Tailwinds nullstilling, men bare inne i kalenderen (.tw). Komponentene fra
+ * StudyPath forutsetter den: knapper uten egen ramme og bakgrunn, og at
+ * `border-l` betyr en heltrukken strek i kantfargen.
+ */
+@layer base {
+  .tw,
+  .tw *,
+  .tw ::before,
+  .tw ::after {
+    box-sizing: border-box;
+    border: 0 solid var(--line);
+    margin: 0;
+    padding: 0;
+  }
+  .tw button {
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: inherit;
+    cursor: pointer;
+  }
+  .tw h2,
+  .tw h3 {
+    font-size: inherit;
+    font-weight: inherit;
+    letter-spacing: normal;
+  }
+  .tw a {
+    color: inherit;
+  }
+}

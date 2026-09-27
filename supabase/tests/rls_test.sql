@@ -243,3 +243,74 @@ begin
   perform pg_temp.check((select count(*) from task_properties) = 1, 'egenskapen finnes fortsatt');
 end $$;
 reset role;
+
+-- Neste forekomst
+select pg_temp.check(public.next_occurrence('2026-09-27', 'daily', 1, '{}', null) = '2026-09-28', 'daglig');
+select pg_temp.check(public.next_occurrence('2026-09-27', 'daily', 3, '{}', null) = '2026-09-30', 'hver tredje dag');
+select pg_temp.check(public.next_occurrence('2026-09-27', 'weekly', 1, '{}', null) = '2026-10-04', 'ukentlig samme dag');
+select pg_temp.check(public.next_occurrence('2026-09-28', 'weekly', 1, '{1,3}', null) = '2026-09-30', 'mandag -> onsdag');
+select pg_temp.check(public.next_occurrence('2026-09-30', 'weekly', 1, '{1,3}', null) = '2026-10-05', 'onsdag -> mandag');
+select pg_temp.check(public.next_occurrence('2026-09-30', 'weekly', 2, '{1,3}', null, '2026-09-28') = '2026-10-12', 'annenhver uke');
+select pg_temp.check(public.next_occurrence('2026-01-31', 'monthly', 1, '{}', null) = '2026-02-28', 'månedsslutt feb');
+select pg_temp.check(public.next_occurrence('2026-02-28', 'monthly', 1, '{}', null, '2026-01-31') = '2026-03-31', 'månedsslutt tilbake til 31.');
+select pg_temp.check(public.next_occurrence('2026-09-27', 'yearly', 1, '{}', null) = '2027-09-27', 'årlig');
+select pg_temp.check(public.next_occurrence('2026-09-27', 'daily', 1, '{}', '2026-09-27') is null, 'til-dato stopper');
+select pg_temp.check(public.next_occurrence('2026-09-27', null, 1, '{}', null) is null, 'uten regel');
+
+-- Gjentakende oppgave lager neste forekomst når den fullføres, én gang.
+set role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$
+declare
+  v_project uuid := (select project_id from ids2);
+  v_task uuid;
+  v_next uuid;
+begin
+  insert into tasks (project_id, title, due_date, repeat_freq, repeat_weekdays, custom)
+  values (v_project, 'Tømme søppel', '2026-09-28', 'weekly', '{1,4}', '{"x":1}') returning id into v_task;
+  update tasks set status = 'done' where id = v_task;
+  select id into v_next from tasks where recurs_from = v_task;
+  perform pg_temp.check(v_next is not null, 'neste forekomst laget');
+  perform pg_temp.check((select due_date from tasks where id = v_next) = '2026-10-01', 'neste frist er torsdag');
+  perform pg_temp.check((select status from tasks where id = v_next) = 'not_started', 'ny forekomst ikke startet');
+  perform pg_temp.check((select custom from tasks where id = v_next) = '{"x":1}', 'egenskaper kopieres');
+  perform pg_temp.check((select repeat_anchor from tasks where id = v_next) = '2026-09-28', 'anker beholdes');
+  update tasks set status = 'not_started' where id = v_task;
+  update tasks set status = 'done' where id = v_task;
+  perform pg_temp.check((select count(*) from tasks where recurs_from = v_task) = 1, 'ingen dobbel forekomst');
+  begin
+    update tasks set recurs_from = null where id = v_next;
+    raise exception 'TEST FEILET: recurs_from kunne endres';
+  exception when insufficient_privilege then null;
+  end;
+  -- Serie med sluttdato stopper
+  insert into tasks (project_id, title, due_date, repeat_freq, repeat_until)
+  values (v_project, 'Siste', '2026-09-28', 'daily', '2026-09-28') returning id into v_task;
+  update tasks set status = 'done' where id = v_task;
+  perform pg_temp.check(not exists (select 1 from tasks where recurs_from = v_task), 'serie slutt');
+end $$;
+
+-- Kalenderhendelser
+do $$
+declare
+  v_project uuid := (select project_id from ids2);
+begin
+  insert into calendar_events (project_id, title, start_date, end_date, start_time, end_time, category)
+  values (v_project, 'Møte', '2026-09-28', '2026-09-28', '10:00', '11:00', 'Planlegging');
+  perform pg_temp.check((select count(*) from categories where name = 'Planlegging' and scope = 'task') = 1, 'hendelse husker kategori');
+  begin
+    insert into calendar_events (project_id, title, start_date, end_date, start_time, end_time)
+    values (v_project, 'Feil', '2026-09-28', '2026-09-28', '11:00', '10:00');
+    raise exception 'TEST FEILET: slutt før start';
+  exception when check_violation then null;
+  end;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+  perform pg_temp.check((select count(*) from calendar_events) = 0, 'utenforstående ser ikke hendelser');
+  begin
+    insert into calendar_events (project_id, title, start_date, end_date) values (v_project, 'Snik', '2026-09-28', '2026-09-28');
+    raise exception 'TEST FEILET: utenforstående lagde hendelse';
+  exception when insufficient_privilege then null;
+  end;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+end $$;
+reset role;

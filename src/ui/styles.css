@@ -59,6 +59,13 @@
   --font: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', Roboto, system-ui, sans-serif;
   --font-display: 'Inter Display', 'Inter', -apple-system, 'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI', Roboto, system-ui, sans-serif;
 
+  /* Navn kalenderen (portert fra StudyPath) bruker. */
+  --line: #e3e8ef;
+  --card: var(--surface);
+  --foreground: var(--text);
+  --muted-foreground: var(--text-3);
+  --destructive: #e5484d;
+
   --nav-h: 64px;
   --sidebar-w: 256px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -68,6 +75,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
+    --line: #232b3a;
     --bg: #05070c;
     --bg-elev: #0a0e16;
     --surface: #10151f;
@@ -111,6 +119,7 @@
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --line: #232b3a;
   --bg: #05070c;
   --bg-elev: #0a0e16;
   --surface: #10151f;
@@ -321,7 +330,7 @@ p {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
@@ -566,23 +575,23 @@ p {
   min-width: 0;
 }
 
-.grid {
+.layout-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1fr);
 }
 @media (min-width: 640px) {
-  .grid.cols-2,
-  .grid.cols-3,
-  .grid.cols-4 {
+  .layout-grid.cols-2,
+  .layout-grid.cols-3,
+  .layout-grid.cols-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (min-width: 1100px) {
-  .grid.cols-3 {
+  .layout-grid.cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .grid.cols-4 {
+  .layout-grid.cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
@@ -2293,5 +2302,39 @@ th:hover .prop-head .prop-more,
     border-radius: 5px;
     padding: 2px 8px;
     height: 26px;
+  }
+}
+
+.weekday-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.weekday-btn.on {
+  background: var(--accent-bg);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+/* Kalenderen fyller høyden som er igjen; rutenettet ruller inni seg selv. */
+.calendar-shell {
+  height: calc(100dvh - 118px);
+  min-height: 460px;
+}
+@media (max-width: 899px) {
+  .calendar-shell {
+    height: calc(100dvh - var(--nav-h) - 96px - env(safe-area-inset-bottom));
+  }
+}
+@media (min-width: 761px) {
+  .table.notion .col-repeat {
+    width: 150px;
   }
 }

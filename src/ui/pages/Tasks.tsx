@@ -9,6 +9,7 @@ import {
   Loader,
   Maximize2,
   Plus,
+  Repeat,
   Search,
   Users,
   X,
@@ -18,6 +19,7 @@ import { createTask, setTaskProperty, updateProperty, updateTask, type TaskInput
 import { compareValues, isEmpty, readValue } from '../../lib/properties';
 import { daysUntil, formatDateShort, today } from '../../lib/dates';
 import { EMPTY_FILTER, filterTasks, isOverdue, sortTasks, type DueFilter, type TaskFilter, type TaskSortKey } from '../../lib/tasks';
+import { describeRule, NO_REPEAT, ruleFrom, ruleToRow, type RepeatRule } from '../../lib/recurrence';
 import { KIND_LABEL, STATUS_LABEL, type PropValue, type Task, type TaskKind, type TaskProperty, type TaskStatus } from '../../lib/types';
 import { useAuth } from '../../state/auth';
 import { useProject } from '../../state/project';
@@ -27,11 +29,13 @@ import { DateCell, InlineText, SelectCell } from '../components/Cells';
 import { Empty, KindBadge, PersonName, StatusBadge, Tag } from '../components/common';
 import { FilterToggle } from '../components/FilterToggle';
 import { AddPropertyHeader, PROP_ICON, PropertiesMenu, PropertyCell, PropertyHeader, type ColumnDef } from '../components/Properties';
+import { MenuItem, Popover } from '../components/Popover';
+import { RepeatEditor } from '../components/RepeatEditor';
 import { SortHeader } from '../components/SortHeader';
 import { TaskDialog } from '../components/TaskForm';
 import { Page, TaskSubnav } from '../Layout';
 
-type View = 'all' | 'mine' | 'ideas';
+type View = 'all' | 'mine' | 'ideas' | 'recurring';
 type Patch = Partial<TaskInput>;
 type SortKey = TaskSortKey | `prop:${string}`;
 
@@ -43,16 +47,19 @@ const BUILTIN_COLUMNS: ColumnDef[] = [
   { key: 'assignee', label: 'Ansvarlig', icon: <Users size={14} /> },
   { key: 'due', label: 'Frist', icon: <Calendar size={14} /> },
   { key: 'kind', label: 'Type', icon: <CircleChevronDown size={14} /> },
+  { key: 'repeat', label: 'Gjentas', icon: <Repeat size={14} /> },
 ];
 
 /** Skjulte kolonner huskes per prosjekt i denne nettleseren. */
 function useHiddenColumns(projectId: string): [Set<string>, (key: string) => void] {
-  const storageKey = `prosjektpanel:hidden:${projectId}`;
+  const storageKey = `prosjektpanel:hidden:v2:${projectId}`;
   const [hidden, setHidden] = useState<Set<string>>(() => {
     try {
-      return new Set(JSON.parse(localStorage.getItem(storageKey) ?? '[]') as string[]);
+      const stored = localStorage.getItem(storageKey) ?? localStorage.getItem(`prosjektpanel:hidden:${projectId}`);
+      // «Gjentas» er skjult til man slår den på; gjentakende oppgaver har ↻ ved tittelen.
+      return new Set(stored ? [...(JSON.parse(stored) as string[]), ...(localStorage.getItem(storageKey) ? [] : ['repeat'])] : ['repeat']);
     } catch {
-      return new Set();
+      return new Set(['repeat']);
     }
   });
   useEffect(() => {
@@ -107,6 +114,7 @@ export function TasksPage() {
       all: tasks,
       mine: tasks.filter((t) => t.assignee_id === userId && t.kind === 'task'),
       ideas: tasks.filter((t) => t.kind === 'idea'),
+      recurring: tasks.filter((t) => t.kind === 'task' && t.repeat_freq && t.status !== 'done'),
     }),
     [tasks, userId],
   );
@@ -137,7 +145,9 @@ export function TasksPage() {
     try {
       await updateTask(task.id, patch);
       await reload();
-      if (message) toast.ok(message);
+      const spawned = patch.status === 'done' && task.status !== 'done' && task.repeat_freq && task.kind === 'task';
+      if (spawned) toast.ok('Fullført. Neste forekomst er lagt til.');
+      else if (message) toast.ok(message);
     } catch (e) {
       toast.error(e);
     } finally {
@@ -178,7 +188,7 @@ export function TasksPage() {
   };
 
   // Summen av kolonnebreddene i styles.css (.table.notion .col-*), så tabellen ikke klemmer kolonnene.
-  const COL_WIDTH: Record<string, number> = { category: 120, description: 206, status: 132, assignee: 140, due: 80, kind: 104 };
+  const COL_WIDTH: Record<string, number> = { category: 120, description: 206, status: 132, assignee: 140, due: 80, kind: 104, repeat: 150 };
   const tableWidth = 40 + 260 + 44 + BUILTIN_COLUMNS.filter((c) => show(c.key)).reduce((sum, c) => sum + COL_WIDTH[c.key], 0) + visibleProps.length * 160;
   const columnCount = 2 + BUILTIN_COLUMNS.filter((c) => show(c.key)).length + visibleProps.length + 1;
 
@@ -235,6 +245,13 @@ export function TasksPage() {
                 active={view === 'ideas'}
                 onClick={() => setView('ideas')}
                 icon={<Lightbulb size={15} />}
+              />
+              <ViewChip
+                label="Gjentakende"
+                count={viewTasks.recurring.length}
+                active={view === 'recurring'}
+                onClick={() => setView('recurring')}
+                icon={<Repeat size={15} />}
               />
             </div>
             <div className="stat-line" aria-label="Sammendrag">
@@ -372,6 +389,13 @@ export function TasksPage() {
                   )}
                   {show('due') && <SortHeader className="col-due" label="Frist" k="due" sort={sort} onSort={onSort} icon={<Calendar size={14} />} />}
                   {show('kind') && <SortHeader className="col-kind" label="Type" k="kind" sort={sort} onSort={onSort} icon={<CircleChevronDown size={14} />} />}
+                  {show('repeat') && (
+                    <th className="col-repeat">
+                      <span className="th-inner">
+                        <Repeat size={14} aria-hidden="true" /> Gjentas
+                      </span>
+                    </th>
+                  )}
                   {visibleProps.map((p, i) => (
                     <PropertyHeader
                       key={p.id}
@@ -533,6 +557,7 @@ function TaskRow({
       <td className="title-cell">
         <div className="title-wrap">
           <InlineText value={task.title} label="Tittel" required maxLength={200} onSave={(v) => onSave(task, { title: v })} />
+          {task.repeat_freq && task.kind === 'task' && <Repeat size={13} className="subtle" aria-label="Gjentakende" style={{ flex: 'none' }} />}
           <span className="title-actions">
             {task.kind === 'idea' && (
               <button
@@ -609,6 +634,15 @@ function TaskRow({
           </SelectCell>
         </td>
       )}
+      {show('repeat') && (
+        <td className="desktop-cell">
+          {task.kind === 'task' ? (
+            <RepeatCell task={task} onSave={(patch, message) => onSave(task, patch, message)} />
+          ) : (
+            <span className="subtle cell-placeholder" />
+          )}
+        </td>
+      )}
       {props.map((p) => (
         <td key={p.id} className="desktop-cell prop-cell">
           <PropertyCell task={task} prop={p} onSet={(v) => onSaveProp(task, p, v)} />
@@ -626,5 +660,53 @@ function TaskRow({
         {task.kind === 'idea' && <span className="badge warn">{KIND_LABEL.idea}</span>}
       </td>
     </tr>
+  );
+}
+
+/** «Gjentas»-cellen: vis regelen, og endre den i en liten popup. */
+function RepeatCell({ task, onSave }: { task: Task; onSave: (patch: Patch, message?: string) => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [rule, setRule] = useState<RepeatRule>(() => ruleFrom(task));
+  const current = ruleFrom(task);
+  const close = (focus = false) => {
+    setOpen(false);
+    if (focus) ref.current?.focus();
+  };
+  const commit = (r: RepeatRule) => {
+    onSave(
+      { ...ruleToRow(r), repeat_anchor: r.freq ? task.due_date : null },
+      r.freq ? `Gjentas: ${describeRule(r).toLowerCase()}.` : 'Gjentakelsen er fjernet.',
+    );
+    close(true);
+  };
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        className="cell-btn"
+        aria-label={`Gjentakelse for «${task.title}»: ${current.freq ? describeRule(current) : 'ingen'}`}
+        onClick={() => {
+          setRule(ruleFrom(task));
+          setOpen((o) => !o);
+        }}
+      >
+        {current.freq ? <span className="cell-text">{describeRule(current)}</span> : <span className="subtle cell-placeholder" />}
+      </button>
+      <Popover anchorRef={ref} open={open} onClose={close} width={300} label={`Gjentakelse for ${task.title}`}>
+        <div className="stack-sm">
+          <div className="menu-label">Gjentakelse</div>
+          <RepeatEditor rule={rule} onChange={setRule} startDate={task.due_date} />
+          {!task.due_date && rule.freq && <p className="popover-hint">Uten frist regnes neste forekomst fra dagen oppgaven fullføres.</p>}
+          <div className="form-actions">
+            {current.freq && <MenuItem onClick={() => commit(NO_REPEAT)}>Fjern</MenuItem>}
+            <button type="button" className="btn primary small" onClick={() => commit(rule)}>
+              Lagre
+            </button>
+          </div>
+        </div>
+      </Popover>
+    </>
   );
 }

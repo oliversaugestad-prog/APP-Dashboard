@@ -90,7 +90,7 @@ export function FinancePeoplePage() {
         </div>
       </section>
 
-      <div className="grid cols-3">
+      <div className="layout-grid cols-3">
         {rows
           .filter((r) => r.t.items.length > 0)
           .map((r) => (

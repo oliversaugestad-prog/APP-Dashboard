@@ -6,6 +6,7 @@ import { ProjectProvider, useProjectLoader } from '../state/project';
 import { useToast } from '../state/toast';
 import { Notice } from './components/common';
 import { AppShell } from './Layout';
+import { CalendarPage } from './pages/Calendar';
 import { FinancePage } from './pages/Finance';
 import { FinancePeoplePage } from './pages/FinancePeople';
 import { MonthDetailPage } from './pages/MonthDetail';
@@ -90,6 +91,7 @@ function ProjectRoute() {
           <Route index element={<Navigate to="oppgaver" replace />} />
           <Route path="oppgaver" element={<TasksPage />} />
           <Route path="oppgaver/ansvar" element={<TaskPeoplePage />} />
+          <Route path="kalender" element={<CalendarPage />} />
           <Route path="okonomi" element={<FinancePage />} />
           <Route path="okonomi/maneder" element={<MonthsPage />} />
           <Route path="okonomi/maneder/:month" element={<MonthDetailPage />} />
