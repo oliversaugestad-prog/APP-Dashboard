@@ -1889,7 +1889,6 @@ hr.sep {
 
 .table.notion {
   font-size: 0.875rem;
-  min-width: 940px;
 }
 .table.notion th,
 .table.notion td {
@@ -1912,16 +1911,6 @@ hr.sep {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.table.notion .col-title {
-  width: 26%;
-  min-width: 200px;
-  max-width: 360px;
-}
-.table.notion .col-desc {
-  width: 30%;
-  min-width: 160px;
-  max-width: 0;
 }
 .table.notion td.desc-cell {
   max-width: 0;
@@ -2111,7 +2100,7 @@ tr:hover .hover-action,
   }
 }
 
-/* Faste kolonnebredder, så tabellen fyller siden uten å flyte over. */
+/* Faste kolonnebredder. Tabellen fyller siden, og kan rulles sidelengs når det er mange kolonner. */
 @media (min-width: 761px) {
   .table.notion {
     table-layout: fixed;
@@ -2123,25 +2112,31 @@ tr:hover .hover-action,
     width: 40px;
   }
   .table.notion .col-title {
-    width: 24%;
+    width: 260px;
   }
   .table.notion .col-cat {
-    width: 13%;
+    width: 120px;
   }
   .table.notion .col-desc {
-    width: auto;
+    width: 206px;
   }
   .table.notion .col-status {
-    width: 134px;
+    width: 132px;
   }
   .table.notion .col-person {
-    width: 15%;
+    width: 140px;
   }
   .table.notion .col-due {
-    width: 92px;
+    width: 80px;
   }
   .table.notion .col-kind {
-    width: 112px;
+    width: 104px;
+  }
+  .table.notion .col-prop {
+    width: 160px;
+  }
+  .table.notion .col-add {
+    width: 44px;
   }
   .table.notion .mobile-meta {
     display: none;
@@ -2150,5 +2145,153 @@ tr:hover .hover-action,
 @media (max-width: 760px) {
   .hover-action {
     opacity: 1;
+  }
+}
+
+.tag-list {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--surface-2);
+}
+.menu-item.danger {
+  color: var(--danger);
+}
+.menu-icon {
+  display: inline-flex;
+  color: var(--text-3);
+}
+.menu-item.danger .menu-icon {
+  color: var(--danger);
+}
+.menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.menu-label {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 4px 8px 2px;
+}
+
+/* ------------------------------ Egendefinerte egenskaper ------------------------------ */
+
+.table.notion .col-prop {
+  width: 160px;
+}
+.table.notion .col-add {
+  width: 44px;
+  padding: 0 4px;
+  text-align: center;
+}
+.prop-head {
+  width: 100%;
+  min-width: 0;
+}
+.prop-head .prop-more {
+  margin-left: auto;
+  opacity: 0;
+}
+th:hover .prop-head .prop-more,
+.prop-head:focus-visible .prop-more {
+  opacity: 0.8;
+}
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.type-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+.type-opt:hover {
+  background: var(--surface-2);
+}
+.type-opt.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cell-check {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 6px;
+}
+.cell-number .cell-btn {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.prop-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+}
+.prop-fields .prop-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 0.875rem;
+  min-height: 36px;
+}
+
+/* Handlinger på tittelen ligger oppå teksten og vises ved hover, så tittelen får hele bredden. */
+@media (min-width: 761px) {
+  .table.notion td.title-cell {
+    position: relative;
+  }
+  .table.notion .title-actions {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .table.notion .title-actions .hover-action {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 2px 8px;
+    height: 26px;
   }
 }

@@ -203,3 +203,43 @@ do $$ begin
 exception when insufficient_privilege then null;
 end $$;
 reset role;
+
+-- Egendefinerte egenskaper
+set role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$
+declare
+  v_project uuid := (select project_id from ids2);
+  v_prop uuid;
+  v_prop2 uuid;
+  v_task uuid := (select id from tasks where project_id = v_project limit 1);
+begin
+  insert into task_properties (project_id, name, type) values (v_project, 'Timer', 'number') returning id into v_prop;
+  insert into task_properties (project_id, name, type, options) values (v_project, 'Sted', 'select', '[{"name":"Oslo","color":2}]') returning id into v_prop2;
+  perform public.set_task_property(v_task, v_prop, '4.5');
+  perform public.set_task_property(v_task, v_prop2, '"Oslo"');
+  perform pg_temp.check((select custom ->> v_prop::text from tasks where id = v_task) = '4.5', 'tallverdi lagret');
+  perform pg_temp.check((select custom ->> v_prop2::text from tasks where id = v_task) = 'Oslo', 'valg lagret uten å overskrive');
+  perform public.set_task_property(v_task, v_prop, 'null');
+  perform pg_temp.check((select not (custom ? v_prop::text) from tasks where id = v_task), 'tom verdi fjernes');
+  perform public.delete_task_property(v_prop2);
+  perform pg_temp.check((select custom = '{}'::jsonb from tasks where id = v_task), 'sletting fjerner verdier');
+  perform pg_temp.check((select count(*) from task_properties) = 1, 'én egenskap igjen');
+
+  -- Utenforstående
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+  perform pg_temp.check((select count(*) from task_properties) = 0, 'utenforstående ser ikke egenskaper');
+  begin
+    perform public.set_task_property(v_task, v_prop, '1');
+    raise exception 'TEST FEILET: utenforstående satte verdi';
+  exception when no_data_found then null;
+  end;
+  begin
+    perform public.delete_task_property(v_prop);
+    raise exception 'TEST FEILET: utenforstående slettet egenskap';
+  exception when no_data_found then null;
+  end;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+  perform pg_temp.check((select count(*) from task_properties) = 1, 'egenskapen finnes fortsatt');
+end $$;
+reset role;

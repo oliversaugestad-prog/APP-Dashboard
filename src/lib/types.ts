@@ -55,7 +55,32 @@ export interface Task {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Verdier for egendefinerte egenskaper: { egenskaps-id: verdi }. */
+  custom: Record<string, PropValue>;
 }
+
+export type PropType = 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'person' | 'checkbox' | 'url';
+export type PropValue = string | number | boolean | string[] | null;
+
+export interface TaskProperty {
+  id: string;
+  project_id: string;
+  name: string;
+  type: PropType;
+  options: { name: string; color: number }[];
+  position: number;
+}
+
+export const PROP_TYPE_LABEL: Record<PropType, string> = {
+  text: 'Tekst',
+  number: 'Tall',
+  select: 'Valg',
+  multi_select: 'Flervalg',
+  date: 'Dato',
+  person: 'Person',
+  checkbox: 'Avkrysning',
+  url: 'Lenke',
+};
 
 export interface Transaction {
   id: string;

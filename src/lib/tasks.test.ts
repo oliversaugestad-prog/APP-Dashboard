@@ -16,6 +16,7 @@ function task(p: Partial<Task>): Task {
     created_by: null,
     created_at: '2026-09-01T00:00:00Z',
     updated_at: '',
+    custom: {},
     ...p,
   };
 }

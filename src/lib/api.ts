@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Category, CategoryScope, Invitation, Member, MonthBudget, Profile, Project, Task, Transaction } from './types';
+import type { PropValue, TaskProperty, Category, CategoryScope, Invitation, Member, MonthBudget, Profile, Project, Task, Transaction } from './types';
 
 function check<T>(res: { data: T | null; error: unknown }): T {
   if (res.error) throw res.error;
@@ -45,11 +45,12 @@ export interface ProjectData {
   transactions: Transaction[];
   budgets: MonthBudget[];
   categories: Category[];
+  properties: TaskProperty[];
 }
 
 export async function loadProject(id: string): Promise<ProjectData | null> {
   const db = supabase();
-  const [project, members, invitations, tasks, transactions, budgets, categories] = await Promise.all([
+  const [project, members, invitations, tasks, transactions, budgets, categories, properties] = await Promise.all([
     db.from('projects').select('id, name, opening_balance_ore, created_at').eq('id', id).maybeSingle(),
     db.from('project_members').select('*').eq('project_id', id),
     db.from('project_invitations').select('*').eq('project_id', id).order('created_at'),
@@ -57,6 +58,7 @@ export async function loadProject(id: string): Promise<ProjectData | null> {
     db.from('transactions').select('*').eq('project_id', id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }),
     db.from('month_budgets').select('project_id, month, budget_ore').eq('project_id', id),
     db.from('categories').select('project_id, scope, name, color').eq('project_id', id).order('name'),
+    db.from('task_properties').select('id, project_id, name, type, options, position').eq('project_id', id).order('position').order('created_at'),
   ]);
   const p = check(project);
   if (!p) return null;
@@ -81,6 +83,7 @@ export async function loadProject(id: string): Promise<ProjectData | null> {
     transactions: (check(transactions) as Transaction[]).map((t) => ({ ...t, amount_ore: Number(t.amount_ore) })),
     budgets: (check(budgets) as MonthBudget[]).map((b) => ({ ...b, budget_ore: Number(b.budget_ore) })),
     categories: check(categories) as Category[],
+    properties: check(properties) as TaskProperty[],
   };
 }
 
@@ -181,4 +184,28 @@ export async function setCategoryColor(projectId: string, scope: CategoryScope, 
 /** Nytt navn på en kategori i hele prosjektet (oppdaterer alle oppgaver eller poster som bruker den). */
 export async function renameCategory(projectId: string, scope: CategoryScope, oldName: string, newName: string): Promise<void> {
   check(await supabase().rpc('rename_category', { p_project: projectId, p_scope: scope, p_old: oldName, p_new: newName }));
+}
+
+/* ----------------------------- Egendefinerte egenskaper ----------------------------- */
+
+export async function createProperty(projectId: string, input: Pick<TaskProperty, 'name' | 'type' | 'position'>): Promise<TaskProperty> {
+  return check(
+    await supabase()
+      .from('task_properties')
+      .insert({ project_id: projectId, options: [], ...input })
+      .select()
+      .single(),
+  ) as TaskProperty;
+}
+
+export async function updateProperty(id: string, patch: Partial<Pick<TaskProperty, 'name' | 'options' | 'position'>>): Promise<void> {
+  check(await supabase().from('task_properties').update(patch).eq('id', id));
+}
+
+export async function deleteProperty(id: string): Promise<void> {
+  check(await supabase().rpc('delete_task_property', { p_property: id }));
+}
+
+export async function setTaskProperty(taskId: string, propertyId: string, value: PropValue): Promise<void> {
+  check(await supabase().rpc('set_task_property', { p_task: taskId, p_property: propertyId, p_value: value }));
 }

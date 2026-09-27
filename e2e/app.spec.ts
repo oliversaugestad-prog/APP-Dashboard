@@ -190,6 +190,92 @@ test.describe.serial('Prosjektpanel', () => {
     await page.close();
   });
 
+  test('egne egenskaper (kolonner) som i Notion', async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/oppgaver`);
+    const row = page.locator('tbody tr', { hasText: 'Booke festlokale' });
+
+    const addProp = async (name: string, type: string) => {
+      await page.getByRole('button', { name: 'Legg til egenskap' }).click();
+      await page.getByLabel('Navn på egenskapen').fill(name);
+      await page.getByRole('radio', { name: type, exact: true }).click();
+      await page.getByRole('button', { name: 'Legg til', exact: true }).click();
+      await expect(page.getByText(`Egenskapen «${name}» er lagt til.`)).toBeVisible();
+    };
+
+    // Tall
+    await addProp('Timer', 'Tall');
+    await row.getByRole('button', { name: /^Timer for «Booke festlokale»/ }).click();
+    await page.getByRole('textbox', { name: 'Timer for «Booke festlokale»' }).fill('2,5');
+    await page.getByRole('textbox', { name: 'Timer for «Booke festlokale»' }).press('Enter');
+    await expect(row.getByRole('button', { name: /^Timer for «Booke festlokale»: 2,5/ })).toBeVisible();
+
+    // Valg: opprett en ny verdi med farge
+    await addProp('Sted', 'Valg');
+    await row.getByRole('button', { name: /^Sted for/ }).click();
+    await page.locator('.popover').getByRole('combobox').fill('Oslo');
+    await page.locator('.popover').getByRole('combobox').press('Enter');
+    await expect(row.getByRole('button', { name: /^Sted for.*: Oslo/ })).toBeVisible();
+
+    // Flervalg: to verdier
+    await addProp('Utstyr', 'Flervalg');
+    await row.getByRole('button', { name: /^Utstyr for/ }).click();
+    const combo = page.locator('.popover').getByRole('combobox');
+    await combo.fill('Lyd');
+    await combo.press('Enter');
+    await combo.fill('Lys');
+    await combo.press('Enter');
+    await page.keyboard.press('Escape');
+    await expect(row.getByRole('button', { name: /^Utstyr for.*: Lyd, Lys/ })).toBeVisible();
+
+    // Avkrysning
+    await addProp('Bekreftet', 'Avkrysning');
+    await row.getByRole('checkbox', { name: /^Bekreftet for/ }).check();
+    await expect(row.getByRole('checkbox', { name: /^Bekreftet for/ })).toBeChecked();
+
+    // Verdiene lagres i databasen og vises etter omlasting og i oppgavevinduet
+    await page.reload();
+    await expect(row.getByRole('button', { name: /^Timer for.*: 2,5/ })).toBeVisible();
+    await expect(row.getByRole('checkbox', { name: /^Bekreftet for/ })).toBeChecked();
+    await page.getByRole('button', { name: 'Åpne «Booke festlokale»' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByLabel('Egenskaper')).toContainText('Timer');
+    await expect(dialog.getByRole('button', { name: /^Sted for.*: Oslo/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // Kolonnemeny: sortering, nytt navn, skjul og slett
+    const rows = page.locator('tbody tr:not(.add-row):not(.empty-row)');
+    await page.getByRole('button', { name: /^Egenskap Timer/ }).click();
+    await page.getByRole('button', { name: 'Sorter synkende' }).click();
+    await expect(rows.first()).toContainText('Booke festlokale');
+    await page.getByRole('button', { name: /^Egenskap Timer/ }).click();
+    await page.getByRole('button', { name: 'Gi nytt navn' }).click();
+    await page.getByLabel('Navn på egenskapen').fill('Timer brukt');
+    await page.getByRole('button', { name: 'Lagre' }).click();
+    await expect(page.getByRole('button', { name: /^Egenskap Timer brukt/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Egenskap Bekreftet/ }).click();
+    await page.getByRole('button', { name: 'Skjul i visningen' }).click();
+    await expect(page.getByRole('button', { name: /^Egenskap Bekreftet/ })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: /^Egenskap Bekreftet/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Egenskaper/ }).click();
+    await page.getByLabel('Vis Bekreftet').check();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: /^Egenskap Bekreftet/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Egenskap Utstyr/ }).click();
+    await page.getByRole('button', { name: 'Slett egenskap' }).click();
+    await page.getByRole('button', { name: 'Slett', exact: true }).click();
+    await expect(page.getByText('«Utstyr» er slettet.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Egenskap Utstyr/ })).toHaveCount(0);
+    await page.close();
+  });
+
   test('økonomi: poster, budsjett, måneder og datoflytting', async ({ browser }) => {
     const page = await browser.newPage();
     await page.goto('/');

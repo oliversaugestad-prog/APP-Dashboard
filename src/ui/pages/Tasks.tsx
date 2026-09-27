@@ -13,11 +13,12 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { createTask, updateTask, type TaskInput } from '../../lib/api';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createTask, setTaskProperty, updateProperty, updateTask, type TaskInput } from '../../lib/api';
+import { compareValues, isEmpty, readValue } from '../../lib/properties';
 import { daysUntil, formatDateShort, today } from '../../lib/dates';
 import { EMPTY_FILTER, filterTasks, isOverdue, sortTasks, type DueFilter, type TaskFilter, type TaskSortKey } from '../../lib/tasks';
-import { KIND_LABEL, STATUS_LABEL, type Task, type TaskKind, type TaskStatus } from '../../lib/types';
+import { KIND_LABEL, STATUS_LABEL, type PropValue, type Task, type TaskKind, type TaskProperty, type TaskStatus } from '../../lib/types';
 import { useAuth } from '../../state/auth';
 import { useProject } from '../../state/project';
 import { useToast } from '../../state/toast';
@@ -25,27 +26,78 @@ import { CategoryPicker } from '../components/CategoryPicker';
 import { DateCell, InlineText, SelectCell } from '../components/Cells';
 import { Empty, KindBadge, PersonName, StatusBadge, Tag } from '../components/common';
 import { FilterToggle } from '../components/FilterToggle';
+import { AddPropertyHeader, PROP_ICON, PropertiesMenu, PropertyCell, PropertyHeader, type ColumnDef } from '../components/Properties';
 import { SortHeader } from '../components/SortHeader';
 import { TaskDialog } from '../components/TaskForm';
 import { Page, TaskSubnav } from '../Layout';
 
 type View = 'all' | 'mine' | 'ideas';
 type Patch = Partial<TaskInput>;
+type SortKey = TaskSortKey | `prop:${string}`;
+
+/** Innebygde kolonner som kan skjules (tittel vises alltid). */
+const BUILTIN_COLUMNS: ColumnDef[] = [
+  { key: 'category', label: 'Kategori', icon: <CircleChevronDown size={14} /> },
+  { key: 'description', label: 'Beskrivelse', icon: <AlignLeft size={14} /> },
+  { key: 'status', label: 'Status', icon: <Loader size={14} /> },
+  { key: 'assignee', label: 'Ansvarlig', icon: <Users size={14} /> },
+  { key: 'due', label: 'Frist', icon: <Calendar size={14} /> },
+  { key: 'kind', label: 'Type', icon: <CircleChevronDown size={14} /> },
+];
+
+/** Skjulte kolonner huskes per prosjekt i denne nettleseren. */
+function useHiddenColumns(projectId: string): [Set<string>, (key: string) => void] {
+  const storageKey = `prosjektpanel:hidden:${projectId}`;
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(storageKey) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify([...hidden]));
+    } catch {
+      /* lagring kan være blokkert */
+    }
+  }, [hidden, storageKey]);
+  const toggle = (key: string) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  return [hidden, toggle];
+}
 
 const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as TaskStatus[]).map((s) => ({ value: s, label: STATUS_LABEL[s] }));
 const KIND_OPTIONS = (Object.keys(KIND_LABEL) as TaskKind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }));
 
 export function TasksPage() {
-  const { tasks: saved, people, taskCategories, nameOf, reload, project } = useProject();
+  const { tasks: saved, people, taskCategories, nameOf, reload, project, properties } = useProject();
   const { userId } = useAuth();
   const toast = useToast();
   // Endringer i tabellen vises med én gang, før serveren har svart.
   const [pending, setPending] = useState<Record<string, Patch>>({});
-  const tasks = useMemo(() => saved.map((t) => (pending[t.id] ? ({ ...t, ...pending[t.id] } as Task) : t)), [saved, pending]);
+  const [pendingCustom, setPendingCustom] = useState<Record<string, Record<string, PropValue>>>({});
+  const tasks = useMemo(
+    () =>
+      saved.map((t) => {
+        let next = pending[t.id] ? ({ ...t, ...pending[t.id] } as Task) : t;
+        if (pendingCustom[t.id]) next = { ...next, custom: { ...next.custom, ...pendingCustom[t.id] } };
+        return next;
+      }),
+    [saved, pending, pendingCustom],
+  );
+  const [hidden, toggleHidden] = useHiddenColumns(project.id);
+  const show = (key: string) => !hidden.has(key);
+  const visibleProps = properties.filter((p) => show(p.id));
   const [view, setView] = useState<View>('all');
   const [filter, setFilter] = useState<TaskFilter>(EMPTY_FILTER);
   const [hideDone, setHideDone] = useState(false);
-  const [sort, setSort] = useState<{ key: TaskSortKey; dir: 1 | -1 }>({ key: 'due', dir: 1 });
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'due', dir: 1 });
   const [editing, setEditing] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -61,10 +113,21 @@ export function TasksPage() {
 
   const shown = useMemo(() => {
     const f = { ...filter, status: hideDone && !filter.status ? ('open' as const) : filter.status };
-    return sortTasks(filterTasks(viewTasks[view], f), sort.key, sort.dir, nameOf);
-  }, [viewTasks, view, filter, hideDone, sort, nameOf]);
+    const filtered = filterTasks(viewTasks[view], f);
+    if (!sort.key.startsWith('prop:')) return sortTasks(filtered, sort.key as TaskSortKey, sort.dir, nameOf);
+    const prop = properties.find((p) => `prop:${p.id}` === sort.key);
+    if (!prop) return filtered;
+    const val = (t: Task) => readValue(prop.type, t.custom?.[prop.id]);
+    // Tomme verdier havner alltid sist, som i Notion.
+    return [...filtered].sort((a, b) => {
+      const va = val(a);
+      const vb = val(b);
+      if (isEmpty(va) || isEmpty(vb)) return Number(isEmpty(va)) - Number(isEmpty(vb));
+      return compareValues(prop.type, va, vb, nameOf) * sort.dir;
+    });
+  }, [viewTasks, view, filter, hideDone, sort, nameOf, properties]);
 
-  const onSort = (key: TaskSortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
+  const onSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
   const setF = <K extends keyof TaskFilter>(k: K, v: TaskFilter[K]) => setFilter((f) => ({ ...f, [k]: v }));
   const activeCount = (['assignee', 'status', 'category', 'kind'] as const).filter((k) => filter[k]).length + (filter.due !== 'all' ? 1 : 0);
   const filtersActive = activeCount > 0 || filter.query !== '';
@@ -81,6 +144,43 @@ export function TasksPage() {
       setPending(({ [task.id]: _, ...rest }) => rest);
     }
   };
+
+  const saveProp = async (task: Task, prop: TaskProperty, value: PropValue) => {
+    setPendingCustom((p) => ({ ...p, [task.id]: { ...p[task.id], [prop.id]: value } }));
+    try {
+      await setTaskProperty(task.id, prop.id, value);
+      await reload();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      // Fjern bare vår egen ventende verdi; en nyere endring av samme felt kan fortsatt være på vei.
+      setPendingCustom((p) => {
+        const cur = { ...p[task.id] };
+        if (cur[prop.id] === value) delete cur[prop.id];
+        const { [task.id]: _, ...rest } = p;
+        return Object.keys(cur).length ? { ...rest, [task.id]: cur } : rest;
+      });
+    }
+  };
+
+  const moveProp = async (prop: TaskProperty, dir: -1 | 1) => {
+    const order = [...properties];
+    const i = order.findIndex((p) => p.id === prop.id);
+    const j = i + dir;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    try {
+      await Promise.all(order.map((p, idx) => (p.position === idx ? null : updateProperty(p.id, { position: idx }))));
+      await reload();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+
+  // Summen av kolonnebreddene i styles.css (.table.notion .col-*), så tabellen ikke klemmer kolonnene.
+  const COL_WIDTH: Record<string, number> = { category: 120, description: 206, status: 132, assignee: 140, due: 80, kind: 104 };
+  const tableWidth = 40 + 260 + 44 + BUILTIN_COLUMNS.filter((c) => show(c.key)).reduce((sum, c) => sum + COL_WIDTH[c.key], 0) + visibleProps.length * 160;
+  const columnCount = 2 + BUILTIN_COLUMNS.filter((c) => show(c.key)).length + visibleProps.length + 1;
 
   const defaults: Partial<TaskInput> | undefined = view === 'ideas' ? { kind: 'idea' } : view === 'mine' ? { assignee_id: userId } : undefined;
 
@@ -160,6 +260,13 @@ export function TasksPage() {
               <input className="input sm" type="search" placeholder="Søk i oppgaver" value={filter.query} onChange={(e) => setF('query', e.target.value)} />
             </label>
             <FilterToggle open={filtersOpen} onToggle={() => setFiltersOpen((o) => !o)} active={activeCount} />
+            <span className="desktop-only">
+              <PropertiesMenu
+                columns={[...BUILTIN_COLUMNS, ...properties.map((p) => ({ key: p.id, label: p.name, icon: PROP_ICON[p.type] }))]}
+                hidden={hidden}
+                onToggle={toggleHidden}
+              />
+            </span>
             <div className={`filters ${filtersOpen ? 'open' : ''}`}>
               <select className="select sm" aria-label="Ansvarlig" value={filter.assignee} onChange={(e) => setF('assignee', e.target.value)}>
                 <option value="">Alle personer</option>
@@ -242,37 +349,56 @@ export function TasksPage() {
           </Empty>
         ) : (
           <div className="table-wrap">
-            <table className="table notion responsive">
+            <table className="table notion responsive" style={{ minWidth: tableWidth }}>
               <thead>
                 <tr>
                   <th className="w-check">
                     <span className="sr-only">Fullført</span>
                   </th>
                   <SortHeader label="Tittel" k="title" sort={sort} onSort={onSort} className="col-title" icon={<CaseSensitive size={15} />} />
-                  <SortHeader className="col-cat" label="Kategori" k="category" sort={sort} onSort={onSort} icon={<CircleChevronDown size={14} />} />
-                  <th className="col-desc">
-                    <span className="th-inner">
-                      <AlignLeft size={14} aria-hidden="true" /> Beskrivelse
-                    </span>
-                  </th>
-                  <SortHeader className="col-status" label="Status" k="status" sort={sort} onSort={onSort} icon={<Loader size={14} />} />
-                  <SortHeader className="col-person" label="Ansvarlig" k="assignee" sort={sort} onSort={onSort} icon={<Users size={14} />} />
-                  <SortHeader className="col-due" label="Frist" k="due" sort={sort} onSort={onSort} icon={<Calendar size={14} />} />
-                  <SortHeader className="col-kind" label="Type" k="kind" sort={sort} onSort={onSort} icon={<CircleChevronDown size={14} />} />
+                  {show('category') && (
+                    <SortHeader className="col-cat" label="Kategori" k="category" sort={sort} onSort={onSort} icon={<CircleChevronDown size={14} />} />
+                  )}
+                  {show('description') && (
+                    <th className="col-desc">
+                      <span className="th-inner">
+                        <AlignLeft size={14} aria-hidden="true" /> Beskrivelse
+                      </span>
+                    </th>
+                  )}
+                  {show('status') && <SortHeader className="col-status" label="Status" k="status" sort={sort} onSort={onSort} icon={<Loader size={14} />} />}
+                  {show('assignee') && (
+                    <SortHeader className="col-person" label="Ansvarlig" k="assignee" sort={sort} onSort={onSort} icon={<Users size={14} />} />
+                  )}
+                  {show('due') && <SortHeader className="col-due" label="Frist" k="due" sort={sort} onSort={onSort} icon={<Calendar size={14} />} />}
+                  {show('kind') && <SortHeader className="col-kind" label="Type" k="kind" sort={sort} onSort={onSort} icon={<CircleChevronDown size={14} />} />}
+                  {visibleProps.map((p, i) => (
+                    <PropertyHeader
+                      key={p.id}
+                      prop={p}
+                      sortDir={sort.key === `prop:${p.id}` ? sort.dir : null}
+                      onSort={(dir) => setSort({ key: `prop:${p.id}`, dir })}
+                      onHide={() => toggleHidden(p.id)}
+                      onMove={(dir) => void moveProp(p, dir)}
+                      canMoveLeft={i > 0 || properties.indexOf(p) > 0}
+                      canMoveRight={properties.indexOf(p) < properties.length - 1}
+                    />
+                  ))}
+                  <AddPropertyHeader />
                 </tr>
               </thead>
               <tbody>
                 {shown.map((t) => (
-                  <TaskRow key={t.id} task={t} onOpen={() => setEditing(t)} onSave={save} />
+                  <TaskRow key={t.id} task={t} onOpen={() => setEditing(t)} onSave={save} show={show} props={visibleProps} onSaveProp={saveProp} />
                 ))}
                 {shown.length === 0 && (
                   <tr className="empty-row">
-                    <td colSpan={8} className="subtle small" style={{ textAlign: 'center' }}>
+                    <td colSpan={columnCount} className="subtle small" style={{ textAlign: 'center' }}>
                       Ingen treff. Prøv å endre filtrene.
                     </td>
                   </tr>
                 )}
-                <AddRow onAdd={quickAdd} label={view === 'ideas' ? 'Ny idé' : 'Ny oppgave'} />
+                <AddRow onAdd={quickAdd} label={view === 'ideas' ? 'Ny idé' : 'Ny oppgave'} colSpan={columnCount} />
               </tbody>
             </table>
           </div>
@@ -307,7 +433,7 @@ function ViewChip({ label, count, active, onClick, icon }: { label: string; coun
 }
 
 /** «+ Ny oppgave» nederst i tabellen: skriv en tittel og trykk Enter. */
-function AddRow({ onAdd, label }: { onAdd: (title: string) => Promise<void>; label: string }) {
+function AddRow({ onAdd, label, colSpan }: { onAdd: (title: string) => Promise<void>; label: string; colSpan: number }) {
   const [active, setActive] = useState(false);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
@@ -323,7 +449,7 @@ function AddRow({ onAdd, label }: { onAdd: (title: string) => Promise<void>; lab
   };
   return (
     <tr className="add-row">
-      <td colSpan={8}>
+      <td colSpan={colSpan}>
         {active ? (
           <input
             ref={ref}
@@ -370,7 +496,21 @@ function DueText({ task }: { task: Task }) {
   );
 }
 
-function TaskRow({ task, onOpen, onSave }: { task: Task; onOpen: () => void; onSave: (t: Task, patch: Patch, message?: string) => void }) {
+function TaskRow({
+  task,
+  onOpen,
+  onSave,
+  show,
+  props,
+  onSaveProp,
+}: {
+  task: Task;
+  onOpen: () => void;
+  onSave: (t: Task, patch: Patch, message?: string) => void;
+  show: (key: string) => boolean;
+  props: TaskProperty[];
+  onSaveProp: (t: Task, prop: TaskProperty, value: PropValue) => void;
+}) {
   const { personById, people } = useProject();
   const person = task.assignee_id ? personById.get(task.assignee_id) : null;
   const done = task.status === 'done';
@@ -393,68 +533,88 @@ function TaskRow({ task, onOpen, onSave }: { task: Task; onOpen: () => void; onS
       <td className="title-cell">
         <div className="title-wrap">
           <InlineText value={task.title} label="Tittel" required maxLength={200} onSave={(v) => onSave(task, { title: v })} />
-          {task.kind === 'idea' && (
-            <button
-              type="button"
-              className="link-btn xsmall"
-              style={{ flex: 'none' }}
-              onClick={() => onSave(task, { kind: 'task' }, `«${task.title}» er nå en oppgave.`)}
-            >
-              Gjør til oppgave
+          <span className="title-actions">
+            {task.kind === 'idea' && (
+              <button
+                type="button"
+                className="link-btn xsmall hover-action"
+                style={{ flex: 'none' }}
+                onClick={() => onSave(task, { kind: 'task' }, `«${task.title}» er nå en oppgave.`)}
+              >
+                Gjør til oppgave
+              </button>
+            )}
+            <button type="button" className="open-btn" onClick={onOpen} aria-label={`Åpne «${task.title}»`}>
+              <Maximize2 size={12} aria-hidden="true" /> ÅPNE
             </button>
-          )}
-          <button type="button" className="open-btn" onClick={onOpen} aria-label={`Åpne «${task.title}»`}>
-            <Maximize2 size={12} aria-hidden="true" /> ÅPNE
-          </button>
+          </span>
         </div>
       </td>
-      <td className="desktop-cell">
-        <CategoryPicker
-          scope="task"
-          variant="cell"
-          label={`Kategori for «${task.title}»`}
-          value={task.category}
-          onChange={(v) => onSave(task, { category: v })}
-        />
-      </td>
-      <td className="desc-cell desktop-cell">
-        <InlineText value={task.description} label="Beskrivelse" maxLength={2000} onSave={(v) => onSave(task, { description: v })} />
-      </td>
-      <td className="m-end">
-        <SelectCell<TaskStatus>
-          label={`Status for «${task.title}»`}
-          value={task.status}
-          options={STATUS_OPTIONS}
-          onChange={(v) => onSave(task, { status: v }, `Status: ${STATUS_LABEL[v]}.`)}
-        >
-          <StatusBadge status={task.status} />
-        </SelectCell>
-      </td>
-      <td className="desktop-cell">
-        <SelectCell<string>
-          label={`Ansvarlig for «${task.title}»`}
-          value={task.assignee_id ?? ''}
-          options={personOptions}
-          onChange={(v) => onSave(task, { assignee_id: v || null })}
-        >
-          {person ? <PersonName person={person} /> : <span className="subtle cell-placeholder" />}
-        </SelectCell>
-      </td>
-      <td className="desktop-cell">
-        <DateCell label={`Frist for «${task.title}»`} value={task.due_date} onChange={(v) => onSave(task, { due_date: v })}>
-          <DueText task={task} />
-        </DateCell>
-      </td>
-      <td className="desktop-cell">
-        <SelectCell<TaskKind>
-          label={`Type for «${task.title}»`}
-          value={task.kind}
-          options={KIND_OPTIONS}
-          onChange={(v) => onSave(task, { kind: v }, v === 'task' ? `«${task.title}» er nå en oppgave.` : `«${task.title}» er nå en idé.`)}
-        >
-          <KindBadge kind={task.kind} />
-        </SelectCell>
-      </td>
+      {show('category') && (
+        <td className="desktop-cell">
+          <CategoryPicker
+            scope="task"
+            variant="cell"
+            label={`Kategori for «${task.title}»`}
+            value={task.category}
+            onChange={(v) => onSave(task, { category: v })}
+          />
+        </td>
+      )}
+      {show('description') && (
+        <td className="desc-cell desktop-cell">
+          <InlineText value={task.description} label="Beskrivelse" maxLength={2000} onSave={(v) => onSave(task, { description: v })} />
+        </td>
+      )}
+      {show('status') && (
+        <td className="m-end">
+          <SelectCell<TaskStatus>
+            label={`Status for «${task.title}»`}
+            value={task.status}
+            options={STATUS_OPTIONS}
+            onChange={(v) => onSave(task, { status: v }, `Status: ${STATUS_LABEL[v]}.`)}
+          >
+            <StatusBadge status={task.status} />
+          </SelectCell>
+        </td>
+      )}
+      {show('assignee') && (
+        <td className="desktop-cell">
+          <SelectCell<string>
+            label={`Ansvarlig for «${task.title}»`}
+            value={task.assignee_id ?? ''}
+            options={personOptions}
+            onChange={(v) => onSave(task, { assignee_id: v || null })}
+          >
+            {person ? <PersonName person={person} /> : <span className="subtle cell-placeholder" />}
+          </SelectCell>
+        </td>
+      )}
+      {show('due') && (
+        <td className="desktop-cell">
+          <DateCell label={`Frist for «${task.title}»`} value={task.due_date} onChange={(v) => onSave(task, { due_date: v })}>
+            <DueText task={task} />
+          </DateCell>
+        </td>
+      )}
+      {show('kind') && (
+        <td className="desktop-cell">
+          <SelectCell<TaskKind>
+            label={`Type for «${task.title}»`}
+            value={task.kind}
+            options={KIND_OPTIONS}
+            onChange={(v) => onSave(task, { kind: v }, v === 'task' ? `«${task.title}» er nå en oppgave.` : `«${task.title}» er nå en idé.`)}
+          >
+            <KindBadge kind={task.kind} />
+          </SelectCell>
+        </td>
+      )}
+      {props.map((p) => (
+        <td key={p.id} className="desktop-cell prop-cell">
+          <PropertyCell task={task} prop={p} onSet={(v) => onSaveProp(task, p, v)} />
+        </td>
+      ))}
+      <td className="desktop-cell col-add-cell" aria-hidden="true" />
       <td className="m-sub mobile-meta">
         {task.category && <Tag label={task.category} scope="task" />}
         {person && <PersonName person={person} />}

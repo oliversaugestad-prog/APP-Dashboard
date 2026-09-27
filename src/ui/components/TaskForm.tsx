@@ -1,6 +1,6 @@
 import { Lightbulb, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { createTask, deleteTask, updateTask, type TaskInput } from '../../lib/api';
+import { createTask, deleteTask, setTaskProperty, updateTask, type TaskInput } from '../../lib/api';
 import { formatDate } from '../../lib/dates';
 import { STATUS_LABEL, type Task, type TaskKind, type TaskStatus } from '../../lib/types';
 import { useProject } from '../../state/project';
@@ -8,6 +8,7 @@ import { useToast } from '../../state/toast';
 import { CategoryPicker } from './CategoryPicker';
 import { Dialog } from './Dialog';
 import { Segmented } from './common';
+import { PROP_ICON, PropertyCell } from './Properties';
 
 interface Props {
   open: boolean;
@@ -25,7 +26,9 @@ export function TaskDialog({ open, onClose, task, defaults }: Props) {
 }
 
 function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Partial<TaskInput>; onDone: () => void }) {
-  const { project, people, reload, nameOf } = useProject();
+  const { project, people, reload, nameOf, properties, tasks } = useProject();
+  // Egendefinerte egenskaper lagres med én gang, så vi viser alltid siste versjon av oppgaven.
+  const live = task ? (tasks.find((t) => t.id === task.id) ?? task) : null;
   const toast = useToast();
   const [form, setForm] = useState<TaskInput>(() => ({
     title: task?.title ?? '',
@@ -126,6 +129,34 @@ function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Pa
           </select>
         </label>
       </div>
+      {live && properties.length > 0 && (
+        <div className="prop-fields" aria-label="Egenskaper">
+          {properties.map((p) => (
+            <div key={p.id} style={{ display: 'contents' }}>
+              <span className="prop-name">
+                <span aria-hidden="true" className="menu-icon">
+                  {PROP_ICON[p.type]}
+                </span>
+                {p.name}
+              </span>
+              <PropertyCell
+                task={live}
+                prop={p}
+                variant="field"
+                onSet={async (v) => {
+                  try {
+                    await setTaskProperty(live.id, p.id, v);
+                    await reload();
+                  } catch (e) {
+                    toast.error(e);
+                  }
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      {!task && properties.length > 0 && <p className="hint">Egendefinerte egenskaper kan fylles ut i tabellen eller når oppgaven er lagret.</p>}
       {task && (
         <p className="xsmall subtle">
           Registrert av {nameOf(task.created_by) || 'ukjent'} {formatDate(task.created_at)}
