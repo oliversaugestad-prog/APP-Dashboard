@@ -1,0 +1,319 @@
+import { expect, test, type Browser, type Page } from '@playwright/test';
+
+// Ende-til-ende: to brukere samarbeider i ett prosjekt, en tredje skal ikke se noe.
+// Krever lokal stakk: `e2e/stack.sh start` (Postgres + Supabase Auth + PostgREST).
+
+const run = Date.now().toString(36);
+const anna = { name: 'Anna Arrangør', email: `anna-${run}@test.no`, password: 'Passord-anna-1' };
+const bjorn = { name: 'Bjørn Budsjett', email: `bjorn-${run}@test.no`, password: 'Passord-bjorn-1' };
+const cato = { name: 'Cato Utenfor', email: `cato-${run}@test.no`, password: 'Passord-cato-1' };
+
+let projectUrl = '';
+
+async function signUp(browser: Browser, user: typeof anna): Promise<Page> {
+  const page = await browser.newPage();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Opprett konto' }).first().click();
+  await page.getByLabel('Navn').fill(user.name);
+  await page.getByLabel('E-post').fill(user.email);
+  await page.getByLabel('Passord').fill(user.password);
+  await page.getByRole('button', { name: 'Opprett konto' }).last().click();
+  await expect(page.getByRole('heading', { name: 'Mine prosjekter' })).toBeVisible();
+  return page;
+}
+
+async function openDialogAndFillTask(
+  page: Page,
+  fields: { title: string; description?: string; category?: string; due?: string; kind?: 'Oppgave' | 'Idé'; assignee?: string },
+) {
+  await page
+    .getByRole('button', { name: /Ny( oppgave)?$/ })
+    .first()
+    .click();
+  const dialog = page.getByRole('dialog');
+  if (fields.kind) await dialog.getByRole('button', { name: fields.kind, exact: true }).click();
+  await dialog.getByLabel('Tittel').fill(fields.title);
+  if (fields.description) await dialog.getByLabel('Kort beskrivelse').fill(fields.description);
+  if (fields.category) await dialog.getByLabel('Kategori eller etikett').fill(fields.category);
+  if (fields.due) await dialog.getByLabel('Forfallsdato').fill(fields.due);
+  if (fields.assignee) await dialog.getByLabel('Ansvarlig').selectOption({ label: fields.assignee });
+  await dialog.getByRole('button', { name: 'Lagre' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+async function addTransaction(
+  page: Page,
+  t: { type: 'Utgift' | 'Inntekt'; name: string; amount: string; date: string; category: string; person?: string; note?: string },
+) {
+  await page
+    .getByRole('button', { name: /^Ny( post)?$/ })
+    .first()
+    .click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: t.type, exact: true }).click();
+  await dialog.getByLabel('Navn eller beskrivelse').fill(t.name);
+  await dialog.getByLabel('Beløp (NOK)').fill(t.amount);
+  await dialog.getByLabel('Dato').fill(t.date);
+  await dialog.getByLabel('Kategori').fill(t.category);
+  if (t.person) await dialog.getByLabel(t.type === 'Utgift' ? 'Hvem betalte?' : 'Hvem mottok?').selectOption({ label: t.person });
+  if (t.note) await dialog.getByLabel('Notat (valgfritt)').fill(t.note);
+  await dialog.getByRole('button', { name: 'Registrer' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+test.describe.serial('Prosjektpanel', () => {
+  test('Anna oppretter konto og prosjekt', async ({ browser }) => {
+    const page = await signUp(browser, anna);
+    await expect(page.getByText(`Logget inn som ${anna.email}`)).toBeVisible();
+    await page.getByLabel('Navn', { exact: true }).fill('Sommerfest');
+    await page.getByLabel('Startsaldo (valgfritt)').fill('1 000');
+    await page.getByRole('button', { name: 'Opprett prosjekt' }).click();
+    await expect(page.getByRole('heading', { name: 'Oppgaver', level: 1 })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Velg prosjekt' })).toHaveValue(/.+/);
+    projectUrl = page.url().replace(/\/oppgaver$/, '');
+    await page.close();
+  });
+
+  test('oppgaver: opprette, filtrere, fullføre og gjøre idé om til oppgave', async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await expect(page.getByRole('heading', { name: 'Oppgaver', level: 1 })).toBeVisible();
+
+    await openDialogAndFillTask(page, { title: 'Booke lokale', description: 'Ring tre steder', category: 'Lokaler', due: '2026-10-05', assignee: anna.name });
+    await openDialogAndFillTask(page, { title: 'Lage plakat', category: 'Markedsføring', due: '2026-09-20' });
+    await openDialogAndFillTask(page, { title: 'Fyrverkeri?', kind: 'Idé', description: 'Sjekk regler' });
+
+    const rows = page.locator('tbody tr');
+    await expect(rows).toHaveCount(3);
+    // Sortert etter frist: plakat (20.9) før lokale (5.10), idé uten frist sist.
+    await expect(rows.nth(0)).toContainText('Lage plakat');
+    await expect(rows.nth(2)).toContainText('Fyrverkeri?');
+    await expect(page.getByText('Forfalt').first()).toBeVisible();
+
+    // Visninger
+    await page.getByRole('button', { name: /Mine oppgaver/ }).click();
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Booke lokale');
+    await page.getByRole('button', { name: /Ideer/ }).click();
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Fyrverkeri?');
+
+    // Idé → oppgave
+    await page.getByRole('button', { name: 'Gjør til oppgave' }).click();
+    await expect(page.getByText('«Fyrverkeri?» er nå en oppgave.')).toBeVisible();
+    await expect(page.locator('tbody tr')).toHaveCount(0);
+
+    // Fullføre og filtrere på status og kategori
+    await page.getByRole('button', { name: /^Alle/ }).click();
+    await page.getByRole('checkbox', { name: 'Fullfør «Lage plakat»' }).check();
+    await expect(page.getByText('Oppgaven er fullført.')).toBeVisible();
+    await page.getByLabel('Status', { exact: true }).selectOption('done');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Lage plakat');
+    await page.getByRole('button', { name: 'Nullstill' }).click();
+    await page.getByLabel('Kategori', { exact: true }).selectOption('Lokaler');
+    await expect(rows).toHaveCount(1);
+    await page.getByRole('button', { name: 'Nullstill' }).click();
+
+    // Sortering på tittel
+    await page.getByRole('button', { name: 'Tittel' }).click();
+    await expect(rows.nth(0)).toContainText('Booke lokale');
+
+    // Rask statusendring
+    await page.getByLabel('Status for «Booke lokale»').selectOption('in_progress');
+    await expect(page.getByText('Status: Pågår.')).toBeVisible();
+
+    // Redigere
+    await page.getByRole('button', { name: 'Booke lokale' }).click();
+    await page.getByRole('dialog').getByLabel('Tittel').fill('Booke festlokale');
+    await page.getByRole('dialog').getByRole('button', { name: 'Lagre' }).click();
+    await expect(page.getByRole('button', { name: 'Booke festlokale' })).toBeVisible();
+
+    // Ansvar per person
+    await page.getByRole('link', { name: 'Ansvar per person' }).first().click();
+    const annaCard = page.locator('section', { has: page.getByRole('heading', { name: anna.name }) });
+    await expect(annaCard.getByText('Booke festlokale')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Uten ansvarlig' })).toBeVisible();
+    await page.close();
+  });
+
+  test('økonomi: poster, budsjett, måneder og datoflytting', async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/okonomi`);
+    await expect(page.getByRole('heading', { name: 'Økonomi', level: 1 })).toBeVisible();
+
+    await addTransaction(page, {
+      type: 'Utgift',
+      name: 'Leie av lokale',
+      amount: '2 500,00',
+      date: '2026-09-15',
+      category: 'Lokaler',
+      person: anna.name,
+      note: 'Depositum inkludert',
+    });
+    await addTransaction(page, { type: 'Inntekt', name: 'Billettsalg', amount: '10000', date: '2026-09-20', category: 'Billetter', person: anna.name });
+    await addTransaction(page, { type: 'Utgift', name: 'Lønn DJ', amount: '1.500', date: '2026-09-21', category: 'Lønn', person: 'Ingen / prosjektet' });
+
+    const rows = page.locator('tbody tr');
+    await expect(rows).toHaveCount(3);
+    await expect(page.locator('.metric', { hasText: 'Inntekter' })).toContainText('10 000,00 kr');
+    await expect(page.locator('.metric', { hasText: 'Utgifter' })).toContainText('4 000,00 kr');
+    await expect(page.locator('.metric', { hasText: 'Resultat' })).toContainText('+6 000,00 kr');
+    await expect(page.locator('.metric', { hasText: 'Saldo nå' })).toContainText('7 000,00 kr');
+
+    // Filtrering og gruppering
+    await page.getByLabel('Type', { exact: true }).selectOption('expense');
+    await expect(rows).toHaveCount(2);
+    await page.getByLabel('Grupper etter').selectOption('category');
+    await expect(page.locator('tr.group-row')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Nullstill' }).click();
+    await page.getByLabel('Grupper etter').selectOption('none');
+
+    // Månedsoversikt og budsjett
+    await page.getByRole('link', { name: 'Måneder' }).click();
+    const sep = page.locator('section.month-card', { has: page.getByRole('heading', { name: 'September 2026' }) });
+    await expect(sep).toContainText('Ikke noe budsjett satt');
+    await sep.getByRole('button', { name: 'Sett budsjett' }).click();
+    await page.getByRole('dialog').getByLabel('Utgiftsbudsjett (NOK)').fill('3 000');
+    await page.getByRole('dialog').getByRole('button', { name: 'Lagre budsjett' }).click();
+    await expect(sep).toContainText('Over budsjett');
+    await expect(sep).toContainText('Budsjett overskredet med');
+    await expect(sep).toContainText('1 000,00 kr');
+    await expect(sep).toContainText('133 % brukt');
+    await expect(sep).toContainText('Saldo ved månedsslutt');
+    await expect(sep).toContainText('7 000,00 kr');
+
+    // Detaljvisning
+    await sep.getByRole('link', { name: 'September 2026', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'September 2026', level: 1 })).toBeVisible();
+    const calc = page.locator('.calc');
+    await expect(calc).toContainText('Startsaldo');
+    await expect(calc).toContainText('1 000,00 kr');
+    await expect(calc).toContainText('7 000,00 kr');
+    await expect(page.locator('tr.group-row')).toHaveCount(2); // gruppert på type som standard
+    await page.getByLabel('Person').selectOption('none');
+    await expect(page.locator('tbody tr:not(.group-row)')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Nullstill' }).click();
+
+    // Flytt leien til oktober: september oppdateres og oktober får posten.
+    await page.getByRole('button', { name: 'Leie av lokale' }).click();
+    await page.getByRole('dialog').getByLabel('Dato').fill('2026-10-02');
+    await page.getByRole('dialog').getByRole('button', { name: 'Lagre' }).click();
+    await expect(page.getByText('Lagret og flyttet til oktober 2026.')).toBeVisible();
+    await expect(page.locator('.calc')).toContainText('9 500,00 kr');
+    await page.getByRole('link', { name: 'Oktober 2026' }).click();
+    await expect(page.getByRole('heading', { name: 'Oktober 2026', level: 1 })).toBeVisible();
+    await expect(page.locator('.calc')).toContainText('9 500,00 kr'); // startsaldo = forrige sluttsaldo
+    await expect(page.locator('.calc')).toContainText('7 000,00 kr'); // sluttsaldo
+    await page.getByRole('link', { name: /Tilbake til månedsoversikten/ }).click();
+    const sep2 = page.locator('section.month-card', { has: page.getByRole('heading', { name: 'September 2026' }) });
+    await expect(sep2).not.toContainText('Over budsjett');
+    await expect(sep2).toContainText('Igjen av budsjettet');
+    await expect(sep2).toContainText('1 500,00 kr');
+    await page.close();
+  });
+
+  test('invitasjon: Bjørn blir med og registrerer en utgift', async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/innstillinger`);
+    await page.getByLabel('E-postadresse').fill(bjorn.email.toUpperCase());
+    await page.getByLabel('Ansvar for økonomi').last().check();
+    await page.getByRole('button', { name: 'Inviter' }).click();
+    await expect(page.getByText('Venter på svar')).toBeVisible();
+    await expect(page.getByText(bjorn.email).first()).toBeVisible();
+
+    const b = await signUp(browser, bjorn);
+    await expect(b.getByRole('heading', { name: 'Invitasjoner' })).toBeVisible();
+    await expect(b.getByText('Sommerfest')).toBeVisible();
+    await expect(b.getByText(`Invitert av ${anna.name}`)).toBeVisible();
+    await b.getByRole('button', { name: 'Bli med' }).click();
+    await expect(b.getByRole('heading', { name: 'Oppgaver', level: 1 })).toBeVisible();
+    await expect(b.getByRole('button', { name: 'Booke festlokale' })).toBeVisible();
+
+    await b.goto(`${projectUrl}/okonomi`);
+    await addTransaction(b, { type: 'Utgift', name: 'Drikke', amount: '899,90', date: '2026-09-26', category: 'Mat og drikke', person: bjorn.name });
+    const row = b.locator('tbody tr', { hasText: 'Drikke' });
+    await expect(row).toContainText('−899,90 kr');
+    await expect(row).toContainText(bjorn.name); // registrert av
+
+    // Per person: hvem har betalt hva
+    await b.getByRole('link', { name: 'Per person', exact: true }).click();
+    await expect(b.getByRole('heading', { name: 'Betalinger per person', level: 1 })).toBeVisible();
+    const table = b.locator('table');
+    await expect(table.locator('tr', { hasText: bjorn.name })).toContainText('899,90 kr');
+    await expect(table.locator('tr', { hasText: anna.name })).toContainText('2 500,00 kr');
+    await expect(table.locator('tr', { hasText: anna.name })).toContainText('10 000,00 kr');
+    await expect(table.locator('tfoot')).toContainText('4 899,90 kr');
+    await b.getByLabel('Periode').selectOption({ label: 'September 2026' });
+    await expect(table.locator('tr', { hasText: anna.name })).toContainText('0,00 kr');
+    await expect(table.locator('tfoot')).toContainText('2 399,90 kr');
+
+    // Anna ser Bjørn som medlem med økonomiansvar
+    await page.reload();
+    const bRow = page.locator('li', { hasText: bjorn.email });
+    await expect(bRow).toContainText('Medlem');
+    await expect(bRow.getByLabel('Ansvar for økonomi')).toBeChecked();
+
+    // Bjørn kan ikke endre prosjektnavn
+    await b.goto(`${projectUrl}/innstillinger`);
+    await expect(b.getByText('Bare eiere kan endre')).toBeVisible();
+    await expect(b.getByLabel('Navn', { exact: true }).first()).toBeDisabled();
+    await b.close();
+    await page.close();
+  });
+
+  test('utenforstående ser ingenting', async ({ browser }) => {
+    const c = await signUp(browser, cato);
+    await expect(c.getByText('Du er ikke med i noen prosjekter ennå')).toBeVisible();
+    await c.goto(`${projectUrl}/oppgaver`);
+    await expect(c.getByText('Fant ikke prosjektet')).toBeVisible();
+    await c.close();
+  });
+
+  test('tema: bytte manuelt og huske valget', async ({ browser }) => {
+    const ctx = await browser.newContext({ colorScheme: 'light' });
+    const page = await ctx.newPage();
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/innstillinger`);
+    await page.getByRole('button', { name: 'Mørk', exact: true }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(bg).toBe('rgb(5, 7, 12)');
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await page.getByRole('button', { name: 'Følg systemet' }).click();
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.+/);
+    await ctx.close();
+  });
+
+  test('logg ut', async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill('feil-passord');
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await expect(page.getByText('Feil e-post eller passord.')).toBeVisible();
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/innstillinger`);
+    await page.getByRole('button', { name: 'Logg ut' }).click();
+    await expect(page.getByRole('button', { name: 'Logg inn' }).last()).toBeVisible();
+    await page.goto(`${projectUrl}/oppgaver`);
+    await expect(page.getByRole('button', { name: 'Logg inn' }).last()).toBeVisible();
+    await page.close();
+  });
+});
