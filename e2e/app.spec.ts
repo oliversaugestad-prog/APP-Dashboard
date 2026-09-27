@@ -22,6 +22,15 @@ async function signUp(browser: Browser, user: typeof anna): Promise<Page> {
   return page;
 }
 
+/** Åpner kategorivelgeren, skriver navnet og trykker Enter (velger eksisterende eller oppretter ny). */
+async function pickCategory(page: Page, trigger: ReturnType<Page['getByRole']>, name: string) {
+  await trigger.click();
+  const box = page.locator('.popover').getByRole('combobox');
+  await box.fill(name);
+  await box.press('Enter');
+  await expect(page.locator('.popover')).toBeHidden();
+}
+
 async function openDialogAndFillTask(
   page: Page,
   fields: { title: string; description?: string; category?: string; due?: string; kind?: 'Oppgave' | 'Idé'; assignee?: string },
@@ -34,7 +43,7 @@ async function openDialogAndFillTask(
   if (fields.kind) await dialog.getByRole('button', { name: fields.kind, exact: true }).click();
   await dialog.getByLabel('Tittel').fill(fields.title);
   if (fields.description) await dialog.getByLabel('Kort beskrivelse').fill(fields.description);
-  if (fields.category) await dialog.getByLabel('Kategori eller etikett').fill(fields.category);
+  if (fields.category) await pickCategory(page, dialog.getByRole('button', { name: /^Kategori eller etikett:/ }), fields.category);
   if (fields.due) await dialog.getByLabel('Forfallsdato').fill(fields.due);
   if (fields.assignee) await dialog.getByLabel('Ansvarlig').selectOption({ label: fields.assignee });
   await dialog.getByRole('button', { name: 'Lagre' }).click();
@@ -54,7 +63,7 @@ async function addTransaction(
   await dialog.getByLabel('Navn eller beskrivelse').fill(t.name);
   await dialog.getByLabel('Beløp (NOK)').fill(t.amount);
   await dialog.getByLabel('Dato').fill(t.date);
-  await dialog.getByLabel('Kategori').fill(t.category);
+  await pickCategory(page, dialog.getByRole('button', { name: /^Kategori:/ }), t.category);
   if (t.person) await dialog.getByLabel(t.type === 'Utgift' ? 'Hvem betalte?' : 'Hvem mottok?').selectOption({ label: t.person });
   if (t.note) await dialog.getByLabel('Notat (valgfritt)').fill(t.note);
   await dialog.getByRole('button', { name: 'Registrer' }).click();
@@ -86,7 +95,7 @@ test.describe.serial('Prosjektpanel', () => {
     await openDialogAndFillTask(page, { title: 'Lage plakat', category: 'Markedsføring', due: '2026-09-20' });
     await openDialogAndFillTask(page, { title: 'Fyrverkeri?', kind: 'Idé', description: 'Sjekk regler' });
 
-    const rows = page.locator('tbody tr');
+    const rows = page.locator('tbody tr:not(.add-row):not(.empty-row)');
     await expect(rows).toHaveCount(3);
     // Sortert etter frist: plakat (20.9) før lokale (5.10), idé uten frist sist.
     await expect(rows.nth(0)).toContainText('Lage plakat');
@@ -104,7 +113,7 @@ test.describe.serial('Prosjektpanel', () => {
     // Idé → oppgave
     await page.getByRole('button', { name: 'Gjør til oppgave' }).click();
     await expect(page.getByText('«Fyrverkeri?» er nå en oppgave.')).toBeVisible();
-    await expect(page.locator('tbody tr')).toHaveCount(0);
+    await expect(rows).toHaveCount(0);
 
     // Fullføre og filtrere på status og kategori
     await page.getByRole('button', { name: /^Alle/ }).click();
@@ -119,23 +128,64 @@ test.describe.serial('Prosjektpanel', () => {
     await page.getByRole('button', { name: 'Nullstill' }).click();
 
     // Sortering på tittel
-    await page.getByRole('button', { name: 'Tittel' }).click();
+    await page.getByRole('button', { name: 'Tittel', exact: true }).click();
     await expect(rows.nth(0)).toContainText('Booke lokale');
 
     // Rask statusendring
     await page.getByLabel('Status for «Booke lokale»').selectOption('in_progress');
     await expect(page.getByText('Status: Pågår.')).toBeVisible();
 
-    // Redigere
-    await page.getByRole('button', { name: 'Booke lokale' }).click();
+    // Redigere i dialogen
+    await page.getByRole('button', { name: 'Åpne «Booke lokale»' }).click();
     await page.getByRole('dialog').getByLabel('Tittel').fill('Booke festlokale');
     await page.getByRole('dialog').getByRole('button', { name: 'Lagre' }).click();
-    await expect(page.getByRole('button', { name: 'Booke festlokale' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Tittel: Booke festlokale/ })).toBeVisible();
+
+    // Redigere direkte i tabellen: tittel, beskrivelse, kategori, ansvarlig, frist og type
+    await page.getByRole('button', { name: /^Tittel: Lage plakat/ }).click();
+    await page.getByRole('textbox', { name: 'Tittel' }).fill('Lage plakat og flyer');
+    await page.getByRole('textbox', { name: 'Tittel' }).press('Enter');
+    await expect(page.getByRole('button', { name: /^Tittel: Lage plakat og flyer/ })).toBeVisible();
+    const plakat = rows.filter({ hasText: 'Lage plakat og flyer' });
+    await plakat.getByRole('button', { name: /^Beskrivelse:/ }).click();
+    await page.getByRole('textbox', { name: 'Beskrivelse' }).fill('A3 og A5');
+    await page.getByRole('textbox', { name: 'Beskrivelse' }).press('Enter');
+    await expect(plakat).toContainText('A3 og A5');
+    // Tidligere brukt kategori kan velges igjen
+    await plakat.getByRole('button', { name: /^Kategori for/ }).click();
+    await expect(page.locator('.popover').getByText('Lokaler')).toBeVisible();
+    await page
+      .locator('.popover')
+      .getByRole('option', { name: /Lokaler/ })
+      .click();
+    await expect(plakat.getByRole('button', { name: /^Kategori for.*: Lokaler/ })).toBeVisible();
+    await plakat.getByLabel(/^Ansvarlig for/).selectOption({ label: anna.name });
+    await expect(plakat).toContainText(anna.name);
+    await plakat.getByLabel(/^Type for/).selectOption('idea');
+    await expect(page.getByText('er nå en idé.')).toBeVisible();
+    await plakat.getByLabel(/^Type for/).selectOption('task');
+    // Nytt navn på kategori endrer alle oppgaver
+    await plakat.getByRole('button', { name: /^Kategori for/ }).click();
+    await page.getByRole('button', { name: 'Rediger Lokaler' }).click();
+    await page.getByLabel('Nytt navn for Lokaler').fill('Lokale og scene');
+    await page.locator('.popover').getByRole('button', { name: 'Lagre' }).click();
+    await expect(page.getByText('Kategorien heter nå «Lokale og scene».')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(rows.filter({ hasText: 'Lokale og scene' })).toHaveCount(2);
+
+    // «+ Ny oppgave» nederst i tabellen
+    await page.getByRole('button', { name: 'Ny oppgave', exact: true }).last().click();
+    await page.getByLabel('Ny oppgave: tittel').fill('Kjøpe kopper');
+    await page.getByLabel('Ny oppgave: tittel').press('Enter');
+    await expect(rows.filter({ hasText: 'Kjøpe kopper' })).toHaveCount(1);
+    await page.getByLabel('Ny oppgave: tittel').press('Escape');
 
     // Ansvar per person
     await page.getByRole('link', { name: 'Ansvar per person' }).first().click();
     const annaCard = page.locator('section', { has: page.getByRole('heading', { name: anna.name }) });
     await expect(annaCard.getByText('Booke festlokale')).toBeVisible();
+    await page.getByLabel('Vis fullførte i listene').check();
+    await expect(annaCard.getByText('Lage plakat og flyer')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Uten ansvarlig' })).toBeVisible();
     await page.close();
   });
@@ -239,7 +289,7 @@ test.describe.serial('Prosjektpanel', () => {
     await expect(b.getByText(`Invitert av ${anna.name}`)).toBeVisible();
     await b.getByRole('button', { name: 'Bli med' }).click();
     await expect(b.getByRole('heading', { name: 'Oppgaver', level: 1 })).toBeVisible();
-    await expect(b.getByRole('button', { name: 'Booke festlokale' })).toBeVisible();
+    await expect(b.getByRole('button', { name: /^Tittel: Booke festlokale/ })).toBeVisible();
 
     await b.goto(`${projectUrl}/okonomi`);
     await addTransaction(b, { type: 'Utgift', name: 'Drikke', amount: '899,90', date: '2026-09-26', category: 'Mat og drikke', person: bjorn.name });

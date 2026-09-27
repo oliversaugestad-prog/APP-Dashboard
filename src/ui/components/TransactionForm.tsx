@@ -7,6 +7,7 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, type Transaction, type TxType } 
 import { useAuth } from '../../state/auth';
 import { useProject } from '../../state/project';
 import { useToast } from '../../state/toast';
+import { CategoryPicker } from './CategoryPicker';
 import { Dialog } from './Dialog';
 import { Segmented } from './common';
 
@@ -29,7 +30,7 @@ export function TransactionDialog({
 }
 
 function TransactionForm({ tx, defaults, onDone }: { tx: Transaction | null; defaults?: Partial<TransactionInput>; onDone: () => void }) {
-  const { project, people, financeCategories, reload, nameOf } = useProject();
+  const { project, people, reload, nameOf } = useProject();
   const { userId } = useAuth();
   const toast = useToast();
   const listId = useId();
@@ -45,7 +46,7 @@ function TransactionForm({ tx, defaults, onDone }: { tx: Transaction | null; def
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const parsed = parseNok(amount);
-  const suggestions = [...new Set([...(type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES), ...financeCategories])];
+  const suggestions = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -133,20 +134,15 @@ function TransactionForm({ tx, defaults, onDone }: { tx: Transaction | null; def
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
           <span className="hint">Hører til {date ? formatMonth(monthOf(date)).toLowerCase() : '–'}.</span>
         </label>
-        <label className="field">
+        <div className="field">
           <span>Kategori</span>
-          <input className="input" list={listId} value={category} onChange={(e) => setCategory(e.target.value)} maxLength={60} placeholder="Velg eller skriv" />
-          <datalist id={listId}>
-            {suggestions.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
+          <CategoryPicker scope="finance" label="Kategori" value={category} onChange={setCategory} suggestions={suggestions} />
           {category.trim().toLowerCase() === 'lønn' && (
             <span className="hint">
               {type === 'expense' ? 'Lønn prosjektet betaler ut, registreres som utgift.' : 'Lønn prosjektet mottar, registreres som inntekt.'}
             </span>
           )}
-        </label>
+        </div>
         <label className="field">
           <span>{type === 'expense' ? 'Hvem betalte?' : 'Hvem mottok?'}</span>
           <select className="select" value={personId} onChange={(e) => setPersonId(e.target.value)}>

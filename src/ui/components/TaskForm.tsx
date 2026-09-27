@@ -1,10 +1,11 @@
 import { Lightbulb, Trash2 } from 'lucide-react';
-import { useId, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { createTask, deleteTask, updateTask, type TaskInput } from '../../lib/api';
 import { formatDate } from '../../lib/dates';
 import { STATUS_LABEL, type Task, type TaskKind, type TaskStatus } from '../../lib/types';
 import { useProject } from '../../state/project';
 import { useToast } from '../../state/toast';
+import { CategoryPicker } from './CategoryPicker';
 import { Dialog } from './Dialog';
 import { Segmented } from './common';
 
@@ -24,9 +25,8 @@ export function TaskDialog({ open, onClose, task, defaults }: Props) {
 }
 
 function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Partial<TaskInput>; onDone: () => void }) {
-  const { project, people, taskCategories, reload, nameOf } = useProject();
+  const { project, people, reload, nameOf } = useProject();
   const toast = useToast();
-  const listId = useId();
   const [form, setForm] = useState<TaskInput>(() => ({
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -111,22 +111,10 @@ function TaskForm({ task, defaults, onDone }: { task: Task | null; defaults?: Pa
           <span>Forfallsdato</span>
           <input className="input" type="date" value={form.due_date ?? ''} onChange={(e) => set('due_date', e.target.value || null)} />
         </label>
-        <label className="field">
+        <div className="field">
           <span>Kategori eller etikett</span>
-          <input
-            className="input"
-            list={listId}
-            value={form.category}
-            onChange={(e) => set('category', e.target.value)}
-            maxLength={60}
-            placeholder="F.eks. Program"
-          />
-          <datalist id={listId}>
-            {taskCategories.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </label>
+          <CategoryPicker scope="task" label="Kategori eller etikett" value={form.category} onChange={(v) => set('category', v)} />
+        </div>
         <label className="field">
           <span>Status</span>
           <select className="select" value={form.status} onChange={(e) => set('status', e.target.value as TaskStatus)}>

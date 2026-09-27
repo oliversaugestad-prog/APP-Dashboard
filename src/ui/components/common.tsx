@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, CircleAlert, Info, Lightbulb, ListTodo } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { KIND_LABEL, STATUS_LABEL, type Person, type TaskKind, type TaskStatus } from '../../lib/types';
+import { KIND_LABEL, STATUS_LABEL, type CategoryScope, type Person, type TaskKind, type TaskStatus } from '../../lib/types';
+import { useProject } from '../../state/project';
 
 export function Notice({ tone = 'info', children, title }: { tone?: 'info' | 'warn' | 'error' | 'ok'; children?: ReactNode; title?: ReactNode }) {
   const Icon = tone === 'warn' ? AlertTriangle : tone === 'error' ? CircleAlert : tone === 'ok' ? CheckCircle2 : Info;
@@ -66,10 +67,11 @@ export function PersonName({ person, fallback = 'Ingen' }: { person: Person | nu
   );
 }
 
-/** Farget etikett; samme tekst får alltid samme farge. */
-export function Tag({ label }: { label: string }) {
+/** Farget kategorietikett med prosjektets lagrede farge. */
+export function Tag({ label, scope }: { label: string; scope: CategoryScope }) {
+  const { colorOf } = useProject();
   if (!label) return <span className="subtle">–</span>;
-  return <span className={`badge tag-${hash(label.toLowerCase()) % 8}`}>{label}</span>;
+  return <span className={`badge tag tag-${colorOf(scope, label)}`}>{label}</span>;
 }
 
 export function StatusBadge({ status }: { status: TaskStatus }) {

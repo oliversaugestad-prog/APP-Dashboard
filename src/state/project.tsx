@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadProject, type ProjectData } from '../lib/api';
-import type { Person } from '../lib/types';
+import type { CategoryScope, Person } from '../lib/types';
 import { useAuth } from './auth';
 
 export interface ProjectState extends ProjectData {
@@ -12,6 +12,8 @@ export interface ProjectState extends ProjectData {
   /** Kategorier som allerede er brukt i prosjektet (til forslag i skjemaer). */
   taskCategories: string[];
   financeCategories: string[];
+  /** Fargeindeks for en kategori. Kategorier som ikke er lagret ennå får en fast farge ut fra navnet. */
+  colorOf: (scope: CategoryScope, name: string) => number;
   reload: () => Promise<void>;
 }
 
@@ -54,6 +56,7 @@ export function ProjectProvider({ data, reload, children }: { data: ProjectData;
       .sort((a, b) => a.name.localeCompare(b.name, 'nb'));
     const personById = new Map(people.map((p) => [p.user_id, p]));
     const me = personById.get(userId) ?? null;
+    const colorBy = new Map(data.categories.map((c) => [`${c.scope}:${c.name}`, c.color]));
     const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'nb'));
     return {
       ...data,
@@ -62,8 +65,9 @@ export function ProjectProvider({ data, reload, children }: { data: ProjectData;
       nameOf: (id) => (id ? (personById.get(id)?.name ?? 'Tidligere medlem') : ''),
       me,
       isOwner: me?.role === 'owner',
-      taskCategories: uniq(data.tasks.map((t) => t.category)),
-      financeCategories: uniq(data.transactions.map((t) => t.category)),
+      taskCategories: uniq([...data.categories.filter((c) => c.scope === 'task').map((c) => c.name), ...data.tasks.map((t) => t.category)]),
+      financeCategories: uniq([...data.categories.filter((c) => c.scope === 'finance').map((c) => c.name), ...data.transactions.map((t) => t.category)]),
+      colorOf: (scope, name) => colorBy.get(`${scope}:${name}`) ?? hashColor(name),
       reload,
     };
   }, [data, reload, userId]);
@@ -74,4 +78,11 @@ export function useProject(): ProjectState {
   const v = useContext(Ctx);
   if (!v) throw new Error('useProject utenfor ProjectProvider');
   return v;
+}
+
+export function hashColor(name: string): number {
+  let h = 0;
+  const s = name.toLowerCase();
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 8;
 }

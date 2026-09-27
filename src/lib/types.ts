@@ -74,6 +74,16 @@ export interface Transaction {
   updated_at: string;
 }
 
+export type CategoryScope = 'task' | 'finance';
+
+export interface Category {
+  project_id: string;
+  scope: CategoryScope;
+  name: string;
+  /** Fargeindeks 0–7 (se .tag-N i styles.css). */
+  color: number;
+}
+
 export interface MonthBudget {
   project_id: string;
   month: string;

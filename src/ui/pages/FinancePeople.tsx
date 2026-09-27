@@ -163,7 +163,7 @@ function TxList({ title, items, onOpen }: { title: string; items: Transaction[];
               </button>
               <div className="li-sub row tight wrap">
                 <span>{formatDateShort(x.occurred_on)}</span>
-                {x.category && <Tag label={x.category} />}
+                {x.category && <Tag label={x.category} scope="finance" />}
               </div>
             </div>
             <span className={`num small ${x.type === 'income' ? 'pos' : ''}`}>{formatNok(x.amount_ore)}</span>

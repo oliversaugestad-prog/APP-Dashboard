@@ -105,7 +105,7 @@ function PersonTasks({
                 </button>
                 <div className="li-sub row tight wrap" style={{ marginTop: 2 }}>
                   {t.due_date && <span className={isOverdue(t) ? 'neg' : ''}>Frist {formatDateShort(t.due_date)}</span>}
-                  {t.category && <Tag label={t.category} />}
+                  {t.category && <Tag label={t.category} scope="task" />}
                 </div>
               </div>
               <StatusBadge status={t.status} />

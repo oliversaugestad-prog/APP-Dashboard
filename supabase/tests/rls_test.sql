@@ -166,3 +166,40 @@ select pg_temp.check((select count(*) from tasks) + (select count(*) from transa
 select pg_temp.check(not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in ('is_project_member', 'is_project_owner', 'shares_project_with', 'my_confirmed_email')), 'hjelpere ikke i public');
 select pg_temp.check(not has_function_privilege('authenticated', 'public.handle_new_user()', 'execute'), 'handle_new_user kan ikke kalles');
+
+-- Kategorier huskes med farge og er private for prosjektet.
+set role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+create temp table ids2 as select public.create_project('Kategoritest') as project_id;
+insert into tasks (project_id, title, category) select project_id, 'a', 'Program' from ids2;
+insert into tasks (project_id, title, category) select project_id, 'b', 'Lyd' from ids2;
+insert into tasks (project_id, title, category) select project_id, 'c', 'Program' from ids2;
+insert into transactions (project_id, name, amount_ore, occurred_on, type, category) select project_id, 'x', 100, '2026-09-01', 'expense', 'Program' from ids2;
+select pg_temp.check((select count(*) from categories where scope = 'task') = 2, 'to oppgavekategorier');
+select pg_temp.check((select color from categories where scope = 'task' and name = 'Lyd') = 1, 'neste ledige farge');
+select pg_temp.check((select count(*) from categories where scope = 'finance') = 1, 'økonomikategori separat');
+update categories set color = 5 where name = 'Lyd';
+select pg_temp.check((select color from categories where name = 'Lyd') = 5, 'farge kan endres');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select pg_temp.check((select count(*) from categories) = 0, 'utenforstående ser ikke kategorier');
+update categories set color = 0;
+reset role;
+select pg_temp.check((select color from categories where name = 'Lyd') = 5, 'utenforstående kan ikke endre farge');
+
+-- Nytt navn på kategori oppdaterer alle oppgaver og beholder fargen.
+set role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select public.rename_category((select project_id from ids2), 'task', 'Lyd', 'Lyd og lys');
+select pg_temp.check((select count(*) from tasks where category = 'Lyd og lys') = 1, 'oppgave fikk nytt kategorinavn');
+select pg_temp.check((select color from categories where name = 'Lyd og lys') = 5, 'farge beholdt');
+select pg_temp.check(not exists (select 1 from categories where name = 'Lyd'), 'gammelt navn fjernet');
+select pg_temp.check((select count(*) from transactions where category = 'Program') = 1, 'økonomi urørt');
+select public.rename_category((select project_id from ids2), 'task', 'Lyd og lys', 'Program');
+select pg_temp.check((select count(*) from tasks where category = 'Program') = 3, 'sammenslått');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+do $$ begin
+  perform public.rename_category((select project_id from ids2), 'task', 'Program', 'Hacket');
+  raise exception 'TEST FEILET: utenforstående ga nytt navn';
+exception when insufficient_privilege then null;
+end $$;
+reset role;

@@ -129,7 +129,7 @@ export function TxTable({
                     </td>
                     <td className="desktop-cell num">{formatDateShort(t.occurred_on)}</td>
                     <td className="desktop-cell">
-                      <Tag label={t.category} />
+                      <Tag label={t.category} scope="finance" />
                     </td>
                     {showMonth && (
                       <td className="desktop-cell">
@@ -144,7 +144,7 @@ export function TxTable({
                     <td className="desktop-cell wide-cell small muted">{nameOf(t.created_by) || '–'}</td>
                     <td className="m-sub mobile-meta">
                       <span className="num">{formatDateShort(t.occurred_on)}</span>
-                      {t.category && <Tag label={t.category} />}
+                      {t.category && <Tag label={t.category} scope="finance" />}
                       {t.person_id && (
                         <span>
                           {t.type === 'expense' ? 'Betalt av' : 'Mottatt av'} {nameOf(t.person_id)}
