@@ -1,9 +1,36 @@
-const nok = new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const nokShort = new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', minimumFractionDigits: 0, maximumFractionDigits: 2 });
+/**
+ * Valutaen beløp vises i — prosjektets regnskapsvaluta. Settes av
+ * ProjectProvider når et prosjekt åpnes, så alle summer i appen følger den
+ * uten at valutaen må sendes gjennom hver eneste komponent.
+ */
+let displayCurrency = 'NOK';
 
-/** Formaterer øre som kroner, f.eks. 123450 → «1 234,50 kr». */
-export function formatNok(ore: number, opts: { sign?: boolean; short?: boolean } = {}): string {
-  const f = opts.short ? nokShort : nok;
+export function setDisplayCurrency(code: string): void {
+  displayCurrency = code;
+}
+
+export function getDisplayCurrency(): string {
+  return displayCurrency;
+}
+
+const formatters = new Map<string, Intl.NumberFormat>();
+function formatter(currency: string, short: boolean): Intl.NumberFormat {
+  const key = `${currency}:${short}`;
+  let f = formatters.get(key);
+  if (!f) {
+    const digits = new Intl.NumberFormat('nb-NO', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2;
+    f = new Intl.NumberFormat('nb-NO', { style: 'currency', currency, minimumFractionDigits: short ? 0 : digits, maximumFractionDigits: digits });
+    formatters.set(key, f);
+  }
+  return f;
+}
+
+/**
+ * Formaterer hundredeler som et beløp i regnskapsvalutaen (eller `currency`),
+ * f.eks. 123450 → «1 234,50 kr» eller «1 234,50 DKK».
+ */
+export function formatNok(ore: number, opts: { sign?: boolean; short?: boolean; currency?: string } = {}): string {
+  const f = formatter(opts.currency ?? displayCurrency, !!opts.short);
   const text = f.format(Math.abs(ore) / 100).replace(/[\u00a0\u202f]/g, ' ');
   if (ore < 0) return `−${text}`;
   if (opts.sign && ore > 0) return `+${text}`;

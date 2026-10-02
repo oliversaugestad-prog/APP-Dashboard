@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { acceptInvitation, cancelInvitation, createProject, listProjects, myInvitations, type MyInvitation } from '../../lib/api';
 import { formatDate } from '../../lib/dates';
+import { CURRENCIES } from '../../lib/fx';
 import { parseNok } from '../../lib/money';
 import type { Project } from '../../lib/types';
 import { useAuth } from '../../state/auth';
@@ -18,6 +19,7 @@ export function ProjectsPage() {
   const [invites, setInvites] = useState<MyInvitation[]>([]);
   const [name, setName] = useState('');
   const [opening, setOpening] = useState('');
+  const [currency, setCurrency] = useState('DKK');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +47,7 @@ export function ProjectsPage() {
     setBusy(true);
     setError(null);
     try {
-      const id = await createProject(name.trim(), ore);
+      const id = await createProject(name.trim(), ore, currency);
       toast.ok('Prosjektet er opprettet.');
       navigate(`/p/${id}/oppgaver`);
     } catch (err) {
@@ -102,7 +104,7 @@ export function ProjectsPage() {
           </h2>
           <ul className="list">
             {invites.map((inv) => (
-              <li key={inv.id} className="list-item">
+              <li key={inv.id} className="list-row">
                 <div className="li-main">
                   <div className="li-title">{inv.project_name}</div>
                   <div className="li-sub">
@@ -137,7 +139,7 @@ export function ProjectsPage() {
           <ul className="list">
             {projects.map((p) => (
               <li key={p.id}>
-                <Link to={`/p/${p.id}/oppgaver`} className="list-item" style={{ color: 'inherit', textDecoration: 'none' }}>
+                <Link to={`/p/${p.id}/oppgaver`} className="list-row" style={{ color: 'inherit', textDecoration: 'none' }}>
                   <span className="brand-mark" aria-hidden="true" style={{ width: 36, height: 36 }}>
                     {p.name.charAt(0).toUpperCase()}
                   </span>
@@ -163,11 +165,23 @@ export function ProjectsPage() {
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="F.eks. Sommerfest 2027" />
             </label>
             <label className="field">
-              <span>Startsaldo (valgfritt)</span>
+              <span>Regnskapsvaluta</span>
+              <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} – {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Startsaldo i {currency} (valgfritt)</span>
               <input className="input amount" inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0,00" />
             </label>
           </div>
-          <p className="hint">Startsaldo er pengene prosjektet har før dere registrerer poster. Den kan endres senere.</p>
+          <p className="hint">
+            Alle summer vises i regnskapsvalutaen. Poster kan registreres i andre valutaer og regnes om automatisk. Startsaldo og valuta kan endres senere.
+          </p>
           {error && (
             <p className="error-text" role="alert">
               {error}

@@ -2,9 +2,22 @@ import { Copy, Crown, LogOut, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { currentAppUrl } from '../../config';
-import { cancelInvitation, deleteProject, inviteMember, removeMember, setMemberRole, updateMember, updateMyName, updateProject } from '../../lib/api';
+import {
+  cancelInvitation,
+  deleteProject,
+  setProjectCurrency,
+  inviteMember,
+  removeMember,
+  setMemberRole,
+  updateMember,
+  updateMyName,
+  updateProject,
+} from '../../lib/api';
 import { formatDate } from '../../lib/dates';
 import { setLastProject } from '../../lib/lastProject';
+import { planCurrencyChange, ratesNeeded } from '../../lib/currencyChange';
+import { today } from '../../lib/dates';
+import { CURRENCIES, fetchSeries } from '../../lib/fx';
 import { formatNok, oreToInput, parseNok } from '../../lib/money';
 import { getTheme, setTheme, type ThemeChoice } from '../../lib/theme';
 import { ROLE_LABEL, type Person } from '../../lib/types';
@@ -21,6 +34,7 @@ export function SettingsPage() {
       <div className="layout-grid cols-2" style={{ alignItems: 'start' }}>
         <div className="stack">
           <ProjectSection />
+          <CurrencySection />
           <MembersSection />
         </div>
         <div className="stack">
@@ -69,7 +83,7 @@ function ProjectSection() {
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} disabled={!isOwner} maxLength={120} />
         </label>
         <label className="field">
-          <span>Startsaldo (NOK)</span>
+          <span>Startsaldo ({project.currency})</span>
           <input className="input amount" inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} disabled={!isOwner} />
           <span className="hint">
             Pengene prosjektet hadde før første registrerte post. Brukes til å regne ut saldo per måned. Nå: {formatNok(project.opening_balance_ore)}.
@@ -83,6 +97,76 @@ function ProjectSection() {
           </div>
         )}
       </form>
+    </section>
+  );
+}
+
+/** Regnskapsvalutaen: alle summer er i den. Bytte regner om alt med kursen på hver posts dato. */
+function CurrencySection() {
+  const { project, isOwner, transactions, budgets, reload } = useProject();
+  const toast = useToast();
+  const [next, setNext] = useState(project.currency);
+  const [busy, setBusy] = useState(false);
+  const foreignCount = transactions.filter((t) => t.orig_currency !== project.currency).length;
+  const usedCurrencies = [...new Set(transactions.map((t) => t.orig_currency))].filter((c) => c !== project.currency);
+
+  const change = async () => {
+    setBusy(true);
+    try {
+      const now = today();
+      const need = ratesNeeded({ from: project.currency, to: next, transactions, budgets, today: now });
+      const series = need.symbols.length ? await fetchSeries(next, need.symbols, need.start, need.end) : {};
+      const plan = planCurrencyChange({ from: project.currency, to: next, opening: project.opening_balance_ore, transactions, budgets, series, today: now });
+      await setProjectCurrency(project.id, next, plan.opening, plan.tx, plan.budgets);
+      await reload();
+      toast.ok(`Regnskapet er nå i ${next}. Alle beløp er regnet om.`);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card" aria-labelledby="cur-h">
+      <div className="card-head">
+        <h2 id="cur-h">Valuta</h2>
+        <span className="badge accent">{project.currency}</span>
+      </div>
+      <div className="stack-sm">
+        <p className="small muted">
+          Alle summer, budsjetter og saldoer vises i regnskapsvalutaen. Poster kan registreres i hvilken som helst valuta og regnes automatisk om med ECB-kursen
+          på postens dato.
+          {usedCurrencies.length > 0 && ` ${foreignCount} ${foreignCount === 1 ? 'post er' : 'poster er'} registrert i ${usedCurrencies.join(', ')}.`}
+        </p>
+        <label className="field">
+          <span>Regnskapsvaluta</span>
+          <select className="select" value={next} onChange={(e) => setNext(e.target.value)} disabled={!isOwner || busy}>
+            {CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code} – {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {next !== project.currency && (
+          <Notice tone="warn" title={`Bytte fra ${project.currency} til ${next}?`}>
+            Alle {transactions.length} poster regnes om med kursen på postens dato, budsjetter med kursen den 1. i måneden og startsaldoen med dagens kurs.
+            Originalbeløpene beholdes, så du kan bytte tilbake.
+          </Notice>
+        )}
+        {isOwner && next !== project.currency && (
+          <div className="form-actions">
+            <button type="button" className="btn ghost" onClick={() => setNext(project.currency)} disabled={busy}>
+              Avbryt
+            </button>
+            <button type="button" className="btn primary" onClick={change} disabled={busy}>
+              {busy ? 'Regner om …' : `Bytt til ${next}`}
+            </button>
+          </div>
+        )}
+        {!isOwner && <p className="hint">Bare eiere kan bytte regnskapsvaluta.</p>}
+      </div>
     </section>
   );
 }
@@ -147,7 +231,7 @@ function MemberRow({
 }) {
   const [confirm, setConfirm] = useState(false);
   return (
-    <li className="list-item" style={{ flexWrap: 'wrap' }}>
+    <li className="list-row" style={{ flexWrap: 'wrap' }}>
       <Avatar id={person.user_id} name={person.name} large />
       <div className="li-main">
         <div className="li-title">
@@ -270,7 +354,7 @@ function InviteSection() {
           </h3>
           <ul className="list">
             {invitations.map((i) => (
-              <li key={i.id} className="list-item">
+              <li key={i.id} className="list-row">
                 <div className="li-main">
                   <div className="li-title">{i.email}</div>
                   <div className="li-sub">

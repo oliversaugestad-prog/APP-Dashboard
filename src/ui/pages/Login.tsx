@@ -71,7 +71,7 @@ export function LoginPage({ notice }: { notice?: string | null }) {
             </Notice>
             <button
               type="button"
-              className="btn block"
+              className="btn btn-block"
               onClick={() => {
                 setSentTo(null);
                 setMode('login');
@@ -129,7 +129,7 @@ export function LoginPage({ notice }: { notice?: string | null }) {
                   {error}
                 </p>
               )}
-              <button type="submit" className="btn primary block" disabled={busy} style={{ marginTop: 4 }}>
+              <button type="submit" className="btn primary btn-block" disabled={busy} style={{ marginTop: 4 }}>
                 {busy ? 'Vent litt …' : mode === 'login' ? 'Logg inn' : 'Opprett konto'}
               </button>
             </form>

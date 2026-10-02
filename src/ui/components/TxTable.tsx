@@ -79,7 +79,7 @@ export function TxTable({
 
   return (
     <div className="table-wrap">
-      <table className="table responsive nocheck">
+      <table className="data-table responsive nocheck">
         <thead>
           <tr>
             <SortHeader label="Navn" k="name" sort={sort} onSort={onSort} />
@@ -123,6 +123,11 @@ export function TxTable({
                     </td>
                     <td className="r m-end">
                       <Amount tx={t} />
+                      {t.orig_currency !== project.currency && (
+                        <div className="xsmall subtle num" title={`Kurs ${t.fx_rate}`}>
+                          {formatNok(t.type === 'income' ? t.orig_amount : -t.orig_amount, { currency: t.orig_currency, sign: t.type === 'income' })}
+                        </div>
+                      )}
                     </td>
                     <td className="desktop-cell">
                       <span className={`badge ${t.type === 'income' ? 'ok' : 'error'}`}>{TYPE_LABEL[t.type]}</span>

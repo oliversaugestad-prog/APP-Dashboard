@@ -98,7 +98,7 @@ function PersonTasks({
       ) : (
         <ul className="list">
           {list.map((t) => (
-            <li key={t.id} className="list-item">
+            <li key={t.id} className="list-row">
               <div className="li-main">
                 <button type="button" className="row-btn li-title" onClick={() => onOpen(t)} style={{ display: 'block', width: '100%' }}>
                   {t.title}

@@ -51,7 +51,7 @@ export function FinancePeoplePage() {
           <h2 id="sum-h">Summer · {periodLabel}</h2>
         </div>
         <div className="table-wrap">
-          <table className="table">
+          <table className="data-table">
             <thead>
               <tr>
                 <th>Person</th>
@@ -156,7 +156,7 @@ function TxList({ title, items, onOpen }: { title: string; items: Transaction[];
       </h3>
       <ul className="list">
         {items.map((x) => (
-          <li key={x.id} className="list-item">
+          <li key={x.id} className="list-row">
             <div className="li-main">
               <button type="button" className="row-btn li-title" onClick={() => onOpen(x)} style={{ display: 'block', width: '100%' }}>
                 {x.name}

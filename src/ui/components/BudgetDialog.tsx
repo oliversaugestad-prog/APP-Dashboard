@@ -64,7 +64,7 @@ function BudgetForm({ month, onDone }: { month: string | null; onDone: () => voi
         </label>
       )}
       <label className="field">
-        <span>Utgiftsbudsjett (NOK)</span>
+        <span>Utgiftsbudsjett ({project.currency})</span>
         <input className="input amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" />
         <span className="hint">Hvor mye prosjektet planlegger å bruke denne måneden. Budsjettet påvirker ikke saldoen.</span>
       </label>

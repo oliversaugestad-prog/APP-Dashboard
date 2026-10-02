@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadProject, type ProjectData } from '../lib/api';
+import { setDisplayCurrency } from '../lib/money';
 import type { CategoryScope, Person } from '../lib/types';
 import { useAuth } from './auth';
 
@@ -46,6 +47,8 @@ export function useProjectLoader(projectId: string): { load: Load; reload: () =>
 
 export function ProjectProvider({ data, reload, children }: { data: ProjectData; reload: () => Promise<void>; children: ReactNode }) {
   const { userId } = useAuth();
+  // Beløp i hele appen vises i prosjektets regnskapsvaluta.
+  setDisplayCurrency(data.project.currency);
   const value = useMemo<ProjectState>(() => {
     const profileBy = new Map(data.profiles.map((p) => [p.id, p]));
     const people: Person[] = data.members

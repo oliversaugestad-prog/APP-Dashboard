@@ -61,7 +61,7 @@ async function addTransaction(
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: t.type, exact: true }).click();
   await dialog.getByLabel('Navn eller beskrivelse').fill(t.name);
-  await dialog.getByLabel('Beløp (NOK)').fill(t.amount);
+  await dialog.getByRole('textbox', { name: 'Beløp' }).fill(t.amount);
   await dialog.getByLabel('Dato').fill(t.date);
   await pickCategory(page, dialog.getByRole('button', { name: /^Kategori:/ }), t.category);
   if (t.person) await dialog.getByLabel(t.type === 'Utgift' ? 'Hvem betalte?' : 'Hvem mottok?').selectOption({ label: t.person });
@@ -75,7 +75,8 @@ test.describe.serial('Prosjektpanel', () => {
     const page = await signUp(browser, anna);
     await expect(page.getByText(`Logget inn som ${anna.email}`)).toBeVisible();
     await page.getByLabel('Navn', { exact: true }).fill('Sommerfest');
-    await page.getByLabel('Startsaldo (valgfritt)').fill('1 000');
+    await page.getByLabel('Regnskapsvaluta').selectOption('NOK');
+    await page.getByLabel('Startsaldo i NOK (valgfritt)').fill('1 000');
     await page.getByRole('button', { name: 'Opprett prosjekt' }).click();
     await expect(page.getByRole('heading', { name: 'Oppgaver', level: 1 })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Velg prosjekt' })).toHaveValue(/.+/);
@@ -513,6 +514,69 @@ test.describe.serial('Prosjektpanel', () => {
     await c.goto(`${projectUrl}/oppgaver`);
     await expect(c.getByText('Fant ikke prosjektet')).toBeVisible();
     await c.close();
+  });
+
+  test('valuta: poster i andre valutaer og bytte regnskapsvaluta', async ({ browser }) => {
+    const page = await browser.newPage();
+    // Valutatjenesten (ECB-kurser via Frankfurter) svarer med faste kurser i testen.
+    const calls: string[] = [];
+    await page.route('https://api.frankfurter.dev/**', async (route) => {
+      const url = new URL(route.request().url());
+      calls.push(url.pathname + url.search);
+      const base = url.searchParams.get('base');
+      const symbols = (url.searchParams.get('symbols') ?? '').split(',');
+      const perUnit: Record<string, Record<string, number>> = {
+        EUR: { NOK: 11.5, DKK: 7.46 },
+        DKK: { NOK: 1.5, EUR: 0.134 },
+      };
+      const rates = Object.fromEntries(symbols.map((s) => [s, perUnit[base!]?.[s] ?? 1]));
+      const path = url.pathname.replace('/v1/', '');
+      const body = path.includes('..') ? { base, rates: { [path.split('..')[0]]: rates } } : { base, date: path === 'latest' ? '2026-10-01' : path, rates };
+      await route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*' } });
+    });
+    await page.goto('/');
+    await page.getByLabel('E-post').fill(anna.email);
+    await page.getByLabel('Passord').fill(anna.password);
+    await page.getByRole('button', { name: 'Logg inn' }).last().click();
+    await page.goto(`${projectUrl}/okonomi`);
+
+    // Utgift i euro: kursen hentes for datoen og beløpet regnes om til NOK.
+    await page
+      .getByRole('button', { name: /^Ny( post)?$/ })
+      .first()
+      .click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Navn eller beskrivelse').fill('Hotell København');
+    await dialog.getByRole('textbox', { name: 'Beløp' }).fill('100');
+    await dialog.getByLabel('Valuta', { exact: true }).selectOption('EUR');
+    await dialog.getByLabel('Dato').fill('2026-09-10');
+    await expect(dialog.getByText('1 EUR = 11,5 NOK')).toBeVisible();
+    await expect(dialog.getByText('= −1 150,00 kr i NOK')).toBeVisible();
+    // Egen kurs overstyrer
+    await dialog.getByLabel('Valutakurs (EUR → NOK)').fill('11,6');
+    await expect(dialog.getByText('= −1 160,00 kr i NOK')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Registrer' }).click();
+    await expect(dialog).toBeHidden();
+    const row = page.locator('tbody tr', { hasText: 'Hotell København' });
+    await expect(row).toContainText('−1 160,00 kr');
+    await expect(row).toContainText('−100,00 €');
+    expect(calls.some((c) => c.includes('2026-09-10') && c.includes('base=EUR'))).toBe(true);
+
+    // Bytt regnskapsvaluta til DKK: alt regnes om.
+    await page.goto(`${projectUrl}/innstillinger`);
+    await page.getByLabel('Regnskapsvaluta').selectOption('DKK');
+    await expect(page.getByText('Bytte fra NOK til DKK?')).toBeVisible();
+    await page.getByRole('button', { name: 'Bytt til DKK' }).click();
+    await expect(page.getByText('Regnskapet er nå i DKK. Alle beløp er regnet om.')).toBeVisible();
+    await page.goto(`${projectUrl}/okonomi`);
+    const hotel = page.locator('tbody tr', { hasText: 'Hotell København' });
+    // 100 EUR / 0,134 = 746,27 DKK
+    await expect(hotel).toContainText('−746,27 DKK');
+    await expect(hotel).toContainText('−100,00 €');
+    // Startsaldo 1 000 NOK / 1,5 = 666,67 DKK
+    await page.goto(`${projectUrl}/innstillinger`);
+    await expect(page.getByText('Nå: 666,67 DKK.')).toBeVisible();
+    await page.close();
   });
 
   test('tema: bytte manuelt og huske valget', async ({ browser }) => {

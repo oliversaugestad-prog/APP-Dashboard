@@ -30,11 +30,22 @@ export async function updateMyName(userId: string, display_name: string): Promis
 }
 
 export async function listProjects(): Promise<Project[]> {
-  return check(await supabase().from('projects').select('id, name, opening_balance_ore, created_at').order('created_at'));
+  return check(await supabase().from('projects').select('id, name, opening_balance_ore, currency, created_at').order('created_at'));
 }
 
-export async function createProject(name: string, openingBalanceOre = 0): Promise<string> {
-  return check(await supabase().rpc('create_project', { p_name: name, p_opening_balance_ore: openingBalanceOre })) as string;
+export async function createProject(name: string, openingBalanceOre = 0, currency = 'DKK'): Promise<string> {
+  return check(await supabase().rpc('create_project', { p_name: name, p_opening_balance_ore: openingBalanceOre, p_currency: currency })) as string;
+}
+
+/** Bytt regnskapsvaluta: nye beløp for alle poster og budsjetter, regnet ut i appen med dagskursene. */
+export async function setProjectCurrency(
+  projectId: string,
+  currency: string,
+  opening: number,
+  tx: { id: string; amount: number; rate: number; fx_date: string }[],
+  budgets: { month: string; amount: number }[],
+): Promise<void> {
+  check(await supabase().rpc('set_project_currency', { p_project: projectId, p_currency: currency, p_opening: opening, p_tx: tx, p_budgets: budgets }));
 }
 
 export async function updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'opening_balance_ore'>>): Promise<void> {
@@ -65,7 +76,7 @@ export interface ProjectData {
 export async function loadProject(id: string): Promise<ProjectData | null> {
   const db = supabase();
   const [project, members, invitations, tasks, transactions, budgets, categories, properties, events] = await Promise.all([
-    db.from('projects').select('id, name, opening_balance_ore, created_at').eq('id', id).maybeSingle(),
+    db.from('projects').select('id, name, opening_balance_ore, currency, created_at').eq('id', id).maybeSingle(),
     db.from('project_members').select('*').eq('project_id', id),
     db.from('project_invitations').select('*').eq('project_id', id).order('created_at'),
     db.from('tasks').select('*').eq('project_id', id).order('created_at', { ascending: false }),
@@ -95,7 +106,12 @@ export async function loadProject(id: string): Promise<ProjectData | null> {
     profiles,
     invitations: check(invitations) as Invitation[],
     tasks: check(tasks) as Task[],
-    transactions: (check(transactions) as Transaction[]).map((t) => ({ ...t, amount_ore: Number(t.amount_ore) })),
+    transactions: (check(transactions) as Transaction[]).map((t) => ({
+      ...t,
+      amount_ore: Number(t.amount_ore),
+      orig_amount: Number(t.orig_amount),
+      fx_rate: Number(t.fx_rate),
+    })),
     budgets: (check(budgets) as MonthBudget[]).map((b) => ({ ...b, budget_ore: Number(b.budget_ore) })),
     categories: check(categories) as Category[],
     properties: check(properties) as TaskProperty[],
@@ -168,7 +184,10 @@ export async function deleteTask(id: string): Promise<void> {
 
 /* ----------------------------- Økonomi ----------------------------- */
 
-export type TransactionInput = Pick<Transaction, 'name' | 'amount_ore' | 'occurred_on' | 'type' | 'category' | 'person_id' | 'note'>;
+export type TransactionInput = Pick<
+  Transaction,
+  'name' | 'amount_ore' | 'occurred_on' | 'type' | 'category' | 'person_id' | 'note' | 'orig_currency' | 'orig_amount' | 'fx_rate' | 'fx_date'
+>;
 
 export async function createTransaction(projectId: string, input: TransactionInput): Promise<void> {
   check(

@@ -13,6 +13,8 @@ export interface Project {
   id: string;
   name: string;
   opening_balance_ore: number;
+  /** Regnskapsvaluta (ISO 4217). Alle summer er i denne. */
+  currency: string;
   created_at: string;
 }
 
@@ -126,6 +128,12 @@ export interface Transaction {
   category: string;
   person_id: string | null;
   note: string;
+  /** Valutaen beløpet ble registrert i, og beløpet i den (hundredeler). */
+  orig_currency: string;
+  orig_amount: number;
+  /** Enheter regnskapsvaluta per enhet originalvaluta. */
+  fx_rate: number;
+  fx_date: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

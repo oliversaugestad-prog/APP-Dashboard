@@ -26,7 +26,7 @@ set role authenticated;
 
 -- Anna oppretter et prosjekt og blir eier.
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
-create temp table ids as select public.create_project('Sommerfest', 1000000) as project_id;
+create temp table ids as select public.create_project('Sommerfest', 1000000, 'NOK') as project_id;
 grant select on ids to authenticated;
 select pg_temp.check((select role from project_members where user_id = auth.uid()) = 'owner', 'oppretter blir eier');
 
@@ -309,6 +309,39 @@ begin
   begin
     insert into calendar_events (project_id, title, start_date, end_date) values (v_project, 'Snik', '2026-09-28', '2026-09-28');
     raise exception 'TEST FEILET: utenforstående lagde hendelse';
+  exception when insufficient_privilege then null;
+  end;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+end $$;
+reset role;
+
+-- Valuta
+set role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$
+declare
+  v_project uuid := public.create_project('Valutatest', 10000, 'EUR');
+  v_tx uuid;
+begin
+  perform pg_temp.check((select currency from projects where id = v_project) = 'EUR', 'valuta settes ved oppretting');
+  insert into transactions (project_id, name, amount_ore, occurred_on, type, orig_currency, orig_amount, fx_rate, fx_date)
+  values (v_project, 'Hotell', 13400, '2026-09-15', 'expense', 'DKK', 100000, 0.134, '2026-09-15') returning id into v_tx;
+  insert into month_budgets (project_id, month, budget_ore) values (v_project, '2026-09-01', 50000);
+  begin
+    perform public.set_project_currency(v_project, 'DKK', 74600, '[]', '[]');
+    raise exception 'TEST FEILET: bytte uten alle poster';
+  exception when serialization_failure then null;
+  end;
+  perform public.set_project_currency(v_project, 'DKK', 74600,
+    jsonb_build_array(jsonb_build_object('id', v_tx, 'amount', 100000, 'rate', 1, 'fx_date', '2026-09-15')),
+    '[{"month":"2026-09-01","amount":373000}]');
+  perform pg_temp.check((select currency || opening_balance_ore from projects where id = v_project) = 'DKK74600', 'valuta og startsaldo byttet');
+  perform pg_temp.check((select amount_ore = 100000 and fx_rate = 1 from transactions where id = v_tx), 'post regnet om');
+  perform pg_temp.check((select budget_ore from month_budgets where project_id = v_project) = 373000, 'budsjett regnet om');
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+  begin
+    perform public.set_project_currency(v_project, 'NOK', 0, '[]', '[]');
+    raise exception 'TEST FEILET: ikke-eier byttet valuta';
   exception when insufficient_privilege then null;
   end;
   perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);

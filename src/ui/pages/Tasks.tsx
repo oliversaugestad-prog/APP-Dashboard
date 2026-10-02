@@ -366,7 +366,7 @@ export function TasksPage() {
           </Empty>
         ) : (
           <div className="table-wrap">
-            <table className="table notion responsive" style={{ minWidth: tableWidth }}>
+            <table className="data-table notion responsive" style={{ minWidth: tableWidth }}>
               <thead>
                 <tr>
                   <th className="w-check">
